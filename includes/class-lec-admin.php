@@ -4,6 +4,7 @@ defined('ABSPATH') || exit;
 
 final class LEC_Admin {
     public static function boot(): void {
+        add_filter('plugin_action_links_' . plugin_basename(LEC_FILE), array(__CLASS__, 'plugin_action_links'));
         add_action('admin_init', array(__CLASS__, 'ensure_prerequisites'), 0);
         add_action('admin_init', array(__CLASS__, 'maybe_redirect_setup'), 1);
         add_action('admin_menu', array(__CLASS__, 'menu'));
@@ -21,6 +22,13 @@ final class LEC_Admin {
         add_action('admin_post_lec_inspect_url', array(__CLASS__, 'inspect_url'));
         add_action('admin_post_lec_diagnostics', array(__CLASS__, 'diagnostics'));
         add_action('admin_post_lec_onboard', array(__CLASS__, 'onboard'));
+    }
+
+    public static function plugin_action_links(array $links): array {
+        $page = LEC_Config::is_configured() ? 'lucid-edge-cache' : 'lucid-edge-cache-setup';
+        $settings_link = '<a href="' . esc_url(admin_url('options-general.php?page=' . $page)) . '">' . esc_html__('Settings', 'lucid-edge-cache') . '</a>';
+        array_unshift($links, $settings_link);
+        return $links;
     }
 
     public static function ensure_prerequisites(): void {

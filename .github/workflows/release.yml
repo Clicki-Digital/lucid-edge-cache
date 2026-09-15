@@ -1,0 +1,61 @@
+name: Publish plugin release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate tag and PHP
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          plugin_version="$(php -r '$source=file_get_contents("lucid-edge-cache.php"); preg_match("/^[[:space:]]*\\*[[:space:]]*Version:[[:space:]]*([^[:space:]]+)/m", $source, $m); echo $m[1] ?? "";')"
+          constant_version="$(php -r '$source=file_get_contents("lucid-edge-cache.php"); preg_match("/define\\(\x27LEC_VERSION\x27,[[:space:]]*\x27([^\x27]+)\x27\\)/", $source, $m); echo $m[1] ?? "";')"
+          stable_version="$(awk -F': ' '/^Stable tag:/ {print $2; exit}' readme.txt)"
+          test "$version" = "$plugin_version"
+          test "$version" = "$constant_version"
+          test "$version" = "$stable_version"
+          find . -type f -name '*.php' -not -path './dist/*' -print0 | xargs -0 -n1 php -l
+
+      - name: Build canonical WordPress ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist/lucid-edge-cache
+          rsync -a ./ dist/lucid-edge-cache/ \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            --exclude 'dist/' \
+            --exclude 'TESTING.md' \
+            --exclude 'RELEASING.md'
+          cd dist
+          zip -q -r lucid-edge-cache.zip lucid-edge-cache
+          sha256sum lucid-edge-cache.zip > lucid-edge-cache.zip.sha256
+          test "$(unzip -Z1 lucid-edge-cache.zip | head -1)" = 'lucid-edge-cache/'
+          test "$(unzip -Z1 lucid-edge-cache.zip | grep -c '^lucid-edge-cache/lucid-edge-cache.php$')" -eq 1
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "Lucid Edge Cache ${GITHUB_REF_NAME#v}"
+          fi
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/lucid-edge-cache.zip \
+            dist/lucid-edge-cache.zip.sha256 \
+            --clobber

@@ -16,8 +16,21 @@ final class LEC_Updater {
         add_filter('plugins_api', array(__CLASS__, 'plugin_information'), 20, 3);
         add_filter('upgrader_pre_download', array(__CLASS__, 'verify_download'), 10, 4);
         add_filter('upgrader_source_selection', array(__CLASS__, 'verify_package_root'), 10, 4);
+        add_action('load-update-core.php', array(__CLASS__, 'maybe_force_update_check'), 1);
         add_action('upgrader_process_complete', array(__CLASS__, 'upgrade_complete'), 10, 2);
         add_action('delete_site_transient_update_plugins', array(__CLASS__, 'clear_release_cache'));
+    }
+
+    /**
+     * WordPress's Check again link force-checks core but can retain the plugin
+     * and vendor-release transients. Clear both before the normal plugin update
+     * callback runs later on load-update-core.php.
+     */
+    public static function maybe_force_update_check(): void {
+        if (empty($_GET['force-check']) || !current_user_can('update_plugins')) return;
+
+        delete_site_transient(self::RELEASE_TRANSIENT);
+        delete_site_transient('update_plugins');
     }
 
     /**

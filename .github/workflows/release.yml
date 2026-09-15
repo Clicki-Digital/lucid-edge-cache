@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*.*.*'
+    branches:
+      - main
+    paths:
+      - '.github/release-version'
 
 permissions:
   contents: write
@@ -15,11 +19,26 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Validate tag and PHP
+      - name: Resolve release tag
+        id: release
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$(tr -d '[:space:]' < .github/release-version)"
+          fi
+          [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Validate tag and PHP
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${RELEASE_TAG#v}"
           plugin_version="$(php -r '$source=file_get_contents("lucid-edge-cache.php"); preg_match("/^[[:space:]]*\\*[[:space:]]*Version:[[:space:]]*([^[:space:]]+)/m", $source, $m); echo $m[1] ?? "";')"
           constant_version="$(php -r '$source=file_get_contents("lucid-edge-cache.php"); preg_match("/define\\(\x27LEC_VERSION\x27,[[:space:]]*\x27([^\x27]+)\x27\\)/", $source, $m); echo $m[1] ?? "";')"
           stable_version="$(awk -F': ' '/^Stable tag:/ {print $2; exit}' readme.txt)"
@@ -49,13 +68,18 @@ jobs:
       - name: Create release and upload assets
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "Lucid Edge Cache ${GITHUB_REF_NAME#v}"
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+              gh release create "$RELEASE_TAG" --verify-tag --generate-notes --title "Lucid Edge Cache ${RELEASE_TAG#v}"
+            else
+              gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" --generate-notes --title "Lucid Edge Cache ${RELEASE_TAG#v}"
+            fi
           fi
-          gh release upload "$GITHUB_REF_NAME" \
+          gh release upload "$RELEASE_TAG" \
             dist/lucid-edge-cache.zip \
             dist/lucid-edge-cache.zip.sha256 \
             --clobber

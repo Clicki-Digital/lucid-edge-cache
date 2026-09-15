@@ -24,8 +24,11 @@ correct public repository is simpler across a managed fleet.
 1. Update the plugin header version, `LEC_VERSION`, `Stable tag`, and changelog.
 2. Test the build on the Clicki Digital test site.
 3. Commit and push the approved source.
-4. Create and push a matching tag, for example `v0.7.0`.
-5. GitHub Actions validates the versions and PHP syntax, then creates the release.
+4. Create and push a matching tag, for example `v0.7.0`. When releases are
+   managed through the connected GitHub integration instead, update
+   `.github/release-version` to the matching tag.
+5. GitHub Actions validates the versions and PHP syntax, creates the tag when
+   the version marker was used, then publishes the release.
 6. Confirm the release contains both `lucid-edge-cache.zip` and
    `lucid-edge-cache.zip.sha256`.
 7. On the test site, select **Dashboard > Updates > Check again** and perform the

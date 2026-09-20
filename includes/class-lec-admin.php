@@ -21,6 +21,7 @@ final class LEC_Admin {
         add_action('admin_post_lec_queue_action', array(__CLASS__, 'queue_action'));
         add_action('admin_post_lec_inspect_url', array(__CLASS__, 'inspect_url'));
         add_action('admin_post_lec_diagnostics', array(__CLASS__, 'diagnostics'));
+        add_action('admin_post_lec_verify_cdn', array(__CLASS__, 'verify_cdn'));
         add_action('admin_post_lec_onboard', array(__CLASS__, 'onboard'));
     }
 
@@ -194,6 +195,28 @@ final class LEC_Admin {
         exit;
     }
 
+    public static function verify_cdn(): void {
+        if (!current_user_can('manage_options')) wp_die('Forbidden');
+        $url = esc_url_raw(wp_unslash($_GET['url'] ?? ''));
+        check_admin_referer('lec_verify_cdn_' . hash('sha256', $url));
+        $settings = LEC_Cache::settings();
+        $base = untrailingslashit((string) ($settings['spaces_cdn_url'] ?? ''));
+        if ($url === '' || $base === '' || strpos($url, $base . '/') !== 0 || !wp_http_validate_url($url)) wp_die('Invalid CDN object URL.');
+        $response = wp_safe_remote_head($url, array('timeout' => 10, 'redirection' => 2));
+        $result = array('url' => $url, 'time' => time(), 'success' => false, 'message' => 'Verification failed.');
+        if (is_wp_error($response)) {
+            $result['message'] = $response->get_error_message();
+        } else {
+            $code = (int) wp_remote_retrieve_response_code($response);
+            $type = sanitize_text_field((string) wp_remote_retrieve_header($response, 'content-type'));
+            $result['success'] = $code >= 200 && $code < 400;
+            $result['message'] = 'HTTP ' . $code . ($type !== '' ? ' — ' . $type : '');
+        }
+        set_transient('lec_cdn_verification_' . get_current_user_id(), $result, 2 * MINUTE_IN_SECONDS);
+        $paged = max(1, absint($_GET['paged'] ?? 1));
+        wp_safe_redirect(add_query_arg(array('page' => 'lucid-edge-cache-records', 'paged' => $paged), admin_url('options-general.php'))); exit;
+    }
+
     public static function onboard(): void {
         check_admin_referer('lec_onboard'); if (!current_user_can('manage_options')) wp_die('Forbidden');
         if (LEC_Config::is_locked()) {
@@ -346,6 +369,8 @@ final class LEC_Admin {
 
     public static function records_page(): void {
         if (!current_user_can('manage_options')) return;
+        $verification = get_transient('lec_cdn_verification_' . get_current_user_id());
+        delete_transient('lec_cdn_verification_' . get_current_user_id());
         $records = LEC_Cache::cached_records();
         $per_page = 100;
         $total = count($records);
@@ -354,8 +379,9 @@ final class LEC_Admin {
         $visible = array_slice($records, ($current - 1) * $per_page, $per_page);
         ?>
         <div class="wrap"><h1>Lucid Edge Cache Records</h1>
+        <?php if (is_array($verification)) : ?><div class="notice <?php echo !empty($verification['success']) ? 'notice-success' : 'notice-error'; ?> inline"><p><strong>CDN verification:</strong> <?php echo esc_html((string) ($verification['message'] ?? 'Unknown result')); ?> — <code><?php echo esc_html((string) wp_parse_url((string) ($verification['url'] ?? ''), PHP_URL_PATH)); ?></code></p></div><?php endif; ?>
         <p><a href="<?php echo esc_url(admin_url('options-general.php?page=lucid-edge-cache')); ?>">&larr; Back to Lucid Edge Cache settings</a></p>
-        <p><?php echo esc_html(number_format_i18n($total)); ?> local cached record<?php echo $total === 1 ? '' : 's'; ?>. CDN links are constructed from the configured Spaces CDN URL; open a link to verify the remote copy directly.</p>
+        <p><?php echo esc_html(number_format_i18n($total)); ?> local cached record<?php echo $total === 1 ? '' : 's'; ?>. Use <strong>Verify object</strong> to check the remote response without rendering the page. Raw CDN HTML uses the CDN hostname, so missing fonts or visual differences caused by CORS are expected and do not indicate a failed cache object.</p>
         <table class="widefat striped"><thead><tr><th>Page</th><th>Status</th><th>Generated</th><th>Age</th><th>Life remaining</th><th>Size</th><th>Queue</th><th>Spaces CDN</th></tr></thead><tbody>
         <?php if (!$visible) : ?><tr><td colspan="8">No locally cached pages were found. Run Preload published content or visit a public page while logged out.</td></tr><?php endif; ?>
         <?php foreach ($visible as $record) : ?>
@@ -367,7 +393,7 @@ final class LEC_Admin {
         <td><?php echo $record['status'] === 'Fresh' ? esc_html(human_time_diff(time(), time() + (int) $record['remaining'])) : 'Expired'; ?></td>
         <td><?php echo esc_html(size_format((int) $record['size'])); ?></td>
         <td><?php echo !empty($record['queued']) ? 'Regeneration queued' : '—'; ?></td>
-        <td><?php if (!empty($record['spaces_retry'])) : ?><strong>Upload retry queued</strong><?php elseif (!empty($record['cdn_url'])) : ?><a href="<?php echo esc_url((string) $record['cdn_url']); ?>" target="_blank" rel="noopener noreferrer">Open CDN copy</a><?php else : ?>Unavailable<?php endif; ?></td>
+        <td><?php if (!empty($record['spaces_retry'])) : ?><strong>Upload retry queued</strong><?php elseif (!empty($record['cdn_url'])) : ?><?php $verify_url = wp_nonce_url(add_query_arg(array('action' => 'lec_verify_cdn', 'url' => (string) $record['cdn_url'], 'paged' => $current), admin_url('admin-post.php')), 'lec_verify_cdn_' . hash('sha256', (string) $record['cdn_url'])); ?><a class="button button-small" href="<?php echo esc_url($verify_url); ?>">Verify object</a> <a href="<?php echo esc_url((string) $record['cdn_url']); ?>" target="_blank" rel="noopener noreferrer" title="Raw HTML may have CORS-related visual differences">Raw HTML</a><?php else : ?>Unavailable<?php endif; ?></td>
         </tr>
         <?php endforeach; ?>
         </tbody></table>

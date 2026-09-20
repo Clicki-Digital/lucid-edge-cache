@@ -275,6 +275,7 @@ final class LEC_Admin {
         if (($_GET['lec_notice'] ?? '') === 'queues_retried') echo '<div class="notice notice-info"><p>Pending queue processing has been requested.</p></div>';
         ?>
         <div class="wrap"><h1>Lucid Edge Cache</h1>
+        <p>Hi Lee.</p>
         <p><strong>Status:</strong> <?php echo LEC_Cache::dropin_ok() ? 'Drop-in installed' : 'Drop-in unavailable'; ?> · <?php echo esc_html((string) $stats['count']); ?> pages · <?php echo esc_html(size_format($stats['bytes'])); ?> · Object cache: <?php echo wp_using_ext_object_cache() ? 'persistent' : 'default'; ?></p>
         <p><?php if (!empty($s['enabled'])) : ?><a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_cache_state&state=disable'), 'lec_cache_state')); ?>" onclick="return confirm('Disable Lucid page caching and clear local cached HTML?');">Emergency disable</a><?php else : ?><a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_cache_state&state=enable'), 'lec_cache_state')); ?>">Enable page cache</a><?php endif; ?></p>
         <?php $locked = LEC_Config::is_locked(); if ($locked) echo '<div class="notice notice-info inline"><p>Infrastructure settings are managed and locked in <code>wp-config.php</code>. Cache policy and exclusions remain editable. To unlock deliberately, temporarily define <code>LEC_ALLOW_RECONFIGURE</code> as <code>true</code>.</p></div>'; ?>

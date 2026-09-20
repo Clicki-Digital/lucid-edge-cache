@@ -75,6 +75,7 @@ final class LEC_Admin {
         $clean = array(
             'enabled' => empty($input['enabled']) ? 0 : 1,
             'ttl' => max(60, min(DAY_IN_SECONDS * 7, absint($input['ttl'] ?? 21600))),
+            'preload_schedule' => in_array(($input['preload_schedule'] ?? 'daily'), array('daily', 'off'), true) ? $input['preload_schedule'] : 'daily',
             'varnish_enabled' => empty($input['varnish_enabled']) ? 0 : 1,
             'varnish_url' => esc_url_raw($input['varnish_url'] ?? ''),
             'flush_object_cache' => empty($input['flush_object_cache']) ? 0 : 1,
@@ -99,6 +100,7 @@ final class LEC_Admin {
 
     public static function settings_saved($old, $value): void {
         LEC_Cache::write_runtime_config((array) $value);
+        LEC_Cache::sync_preload_schedule((array) $value);
         if ($old !== $value) LEC_Cache::purge_all();
     }
 
@@ -292,6 +294,7 @@ final class LEC_Admin {
         <p class="description">This is the maximum age of cached HTML. Publishing changes still invalidates affected pages immediately.</p>
         <script>(function(){var hidden=document.getElementById('lec_ttl_value'),custom=document.getElementById('lec_ttl_custom'),wrap=document.getElementById('lec_ttl_custom_wrap'),buttons=document.querySelectorAll('.lec-ttl-button');function select(button){buttons.forEach(function(item){item.classList.remove('button-primary');});button.classList.add('button-primary');var value=button.getAttribute('data-seconds');if(value==='custom'){wrap.style.display='block';hidden.value=custom.value;}else{wrap.style.display='none';hidden.value=value;}}buttons.forEach(function(button){button.addEventListener('click',function(){select(button);});});custom.addEventListener('input',function(){var value=Math.max(60,Math.min(604800,parseInt(custom.value||'21600',10)));hidden.value=value;});})();</script>
         </td></tr>
+        <tr><th><label for="lec_preload_schedule">Automatic preload</label></th><td><select id="lec_preload_schedule" name="lec_settings[preload_schedule]"><option value="daily" <?php selected(($s['preload_schedule'] ?? 'daily'), 'daily'); ?>>Daily — Recommended</option><option value="off" <?php selected(($s['preload_schedule'] ?? 'daily'), 'off'); ?>>Off</option></select><p class="description">Queues the home page and published content once daily. Each site receives a stable, staggered start between 4:00 and 5:30 am in the WordPress timezone.</p></td></tr>
         </table><h2>Cache safety rules</h2><p>These protections are always enabled and cannot be accidentally removed.</p><table class="widefat striped"><thead><tr><th>Protection</th><th>Requests bypassed</th><th>Status</th></tr></thead><tbody>
         <?php foreach (LEC_Cache::safety_rules() as $label => $description) : ?><tr><th><?php echo esc_html($label); ?></th><td><?php echo esc_html($description); ?></td><td><strong>Always bypassed</strong></td></tr><?php endforeach; ?>
         </tbody></table><h3>Additional exclusions</h3><table class="form-table">

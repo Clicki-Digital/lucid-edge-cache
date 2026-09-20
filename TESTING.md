@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.9 test checklist
+# Lucid Edge Cache 0.9.1 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -67,6 +67,7 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Open Cached Pages from the main settings page and confirm fresh and expired files show the correct age, life remaining, size and queue state.
 - Confirm the records screen paginates after 100 items and remains restricted to administrators.
 - With Spaces enabled, open several generated CDN links and confirm they use the configured prefix and canonical-host namespace; queue an upload retry and confirm it is flagged instead of presented as verified.
+- Use Verify object and confirm a successful Spaces object reports its HTTP status and content type without rendering the HTML; test a missing object and confirm the failure is shown only to the current administrator.
 
 ## Lifecycle and compatibility
 

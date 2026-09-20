@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.8 test checklist
+# Lucid Edge Cache 0.9 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -64,6 +64,9 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Populate both background queues, test Retry pending work, then test Clear queues on staging.
 - Confirm Advanced tools and diagnostics is collapsed by default below System health and that every contained form and button still works after opening it.
 - Generate preload and purge activity and confirm same-site paths are visible without query strings, external URLs remain hidden, and event/status labels are human-readable.
+- Open Cached Pages from the main settings page and confirm fresh and expired files show the correct age, life remaining, size and queue state.
+- Confirm the records screen paginates after 100 items and remains restricted to administrators.
+- With Spaces enabled, open several generated CDN links and confirm they use the configured prefix and canonical-host namespace; queue an upload retry and confirm it is flagged instead of presented as verified.
 
 ## Lifecycle and compatibility
 

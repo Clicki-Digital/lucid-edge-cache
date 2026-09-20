@@ -3,7 +3,7 @@ Contributors: lucidsolutions
 Tags: cache, varnish, digitalocean, spaces, performance
 Requires at least: 6.4
 Requires PHP: 8.0
-Stable tag: 0.7.4
+Stable tag: 0.8.0
 License: GPLv2 or later
 
 Safe anonymous full-page caching with Varnish purging and optional DigitalOcean Spaces HTML replication.
@@ -47,10 +47,16 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * DigitalOcean replication is secondary; it does not redirect the public website to Spaces.
 * Query-string requests, logged-in sessions, previews, search, feeds, REST, admin and common commerce/session cookies bypass cache.
 * Preloading uses WP-Cron in batches of five. Configure a real cron runner for reliable production operation.
+* Automatic preloading is enabled by default and queues published content once daily at a stable per-site time between 4:00 and 5:30 am in the WordPress timezone. It can be disabled under Page cache.
 * Varnish PURGE behaviour varies by host. Confirm Cloudways accepts PURGE on the configured URL and inspect response headers during testing.
 * Do not enable alongside another plugin that owns wp-content/advanced-cache.php.
 
 == Changelog ==
+= 0.8.0 =
+* Added optional daily automatic cache warming, enabled by default.
+* Staggered each site's warm-up between 4:00 and 5:30 am in its WordPress timezone to reduce shared-server load.
+* Added last and next automatic-preload details to System Health and diagnostics.
+
 = 0.7.4 =
 * Removed the temporary settings-page greeting used to confirm update delivery.
 

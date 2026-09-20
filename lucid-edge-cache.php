@@ -3,7 +3,7 @@
  * Plugin Name: Lucid Edge Cache
  * Plugin URI: https://clickidigital.com.au/plugins/lucid-edge-cache/
  * Description: Safe full-page HTML caching with Varnish purging and optional DigitalOcean Spaces replication.
- * Version: 0.8.0
+ * Version: 0.9.0
  * Author: Lucid Solutions
  * Author URI: https://clickidigital.com.au/
  * Requires at least: 6.4
@@ -14,7 +14,7 @@
 
 defined('ABSPATH') || exit;
 
-define('LEC_VERSION', '0.8.0');
+define('LEC_VERSION', '0.9.0');
 define('LEC_FILE', __FILE__);
 define('LEC_DIR', plugin_dir_path(__FILE__));
 define('LEC_CACHE_DIR', WP_CONTENT_DIR . '/cache/lucid-edge-cache');

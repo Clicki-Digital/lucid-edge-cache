@@ -25,6 +25,7 @@ final class LEC_Cache {
         add_action('edited_term', array(__CLASS__, 'term_changed'), 20);
         add_action('delete_term', array(__CLASS__, 'term_changed'), 20);
         add_action('lec_preload_batch', array(__CLASS__, 'preload_batch'));
+        add_action('lec_daily_preload', array(__CLASS__, 'daily_preload'));
         add_action('lec_spaces_retry_batch', array('LEC_Spaces', 'retry_batch'));
         add_action('lec_cache_cleanup', array(__CLASS__, 'cleanup_expired'));
     }
@@ -37,6 +38,7 @@ final class LEC_Cache {
         self::write_runtime_config();
         self::install_dropin();
         if (!wp_next_scheduled('lec_cache_cleanup')) wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'lec_cache_cleanup');
+        self::sync_preload_schedule();
         update_option('lec_version', LEC_VERSION, false);
         if (!LEC_Config::is_managed()) set_transient('lec_activation_redirect', 1, 60);
     }
@@ -54,12 +56,14 @@ final class LEC_Cache {
         self::write_runtime_config();
         self::install_dropin();
         if (!wp_next_scheduled('lec_cache_cleanup')) wp_schedule_event(time() + HOUR_IN_SECONDS, 'daily', 'lec_cache_cleanup');
+        self::sync_preload_schedule();
         update_option('lec_version', LEC_VERSION, false);
         self::log('plugin_upgrade', 'success', LEC_VERSION);
     }
 
     public static function deactivate(): void {
         wp_clear_scheduled_hook('lec_preload_batch');
+        wp_clear_scheduled_hook('lec_daily_preload');
         wp_clear_scheduled_hook('lec_spaces_retry_batch');
         wp_clear_scheduled_hook('lec_cache_cleanup');
         self::remove_own_dropin();
@@ -69,6 +73,7 @@ final class LEC_Cache {
         return array(
             'enabled' => 1,
             'ttl' => 21600,
+            'preload_schedule' => 'daily',
             'varnish_enabled' => 1,
             'varnish_url' => '',
             'flush_object_cache' => 0,
@@ -414,6 +419,32 @@ final class LEC_Cache {
         return count($urls);
     }
 
+    public static function daily_preload(): void {
+        $settings = self::settings();
+        if (!empty($settings['enabled']) && ($settings['preload_schedule'] ?? 'daily') === 'daily') {
+            $count = self::queue_preload();
+            update_option('lec_last_automatic_preload', array('time' => time(), 'count' => $count), false);
+            self::log('automatic_preload', 'queued', $count . ' URLs');
+        }
+        self::sync_preload_schedule();
+    }
+
+    public static function sync_preload_schedule(?array $settings = null): void {
+        $settings = wp_parse_args($settings ?? self::settings(), self::defaults());
+        wp_clear_scheduled_hook('lec_daily_preload');
+        if (empty($settings['enabled']) || ($settings['preload_schedule'] ?? 'daily') !== 'daily') return;
+        wp_schedule_single_event(self::next_preload_timestamp(), 'lec_daily_preload');
+    }
+
+    private static function next_preload_timestamp(): int {
+        $timezone = wp_timezone();
+        $now = new DateTimeImmutable('now', $timezone);
+        $minute_offset = abs((int) crc32(self::site_host())) % 91;
+        $next = $now->setTime(4, 0)->modify('+' . $minute_offset . ' minutes');
+        if ($next <= $now) $next = $next->modify('+1 day');
+        return $next->getTimestamp();
+    }
+
     public static function preload_batch(): void {
         if (get_transient('lec_preload_lock')) return;
         set_transient('lec_preload_lock', 1, 2 * MINUTE_IN_SECONDS);
@@ -502,6 +533,7 @@ final class LEC_Cache {
         $settings['enabled'] = $enabled ? 1 : 0;
         update_option('lec_settings', $settings, false);
         self::write_runtime_config(self::settings());
+        self::sync_preload_schedule(self::settings());
         if (!$enabled) {
             self::delete_tree(LEC_CACHE_DIR . '/pages', true);
             wp_mkdir_p(LEC_CACHE_DIR . '/pages');
@@ -518,7 +550,7 @@ final class LEC_Cache {
             'wordpress_version' => get_bloginfo('version'),
             'php_version' => PHP_VERSION,
             'health' => self::health(),
-            'policy' => array('enabled' => !empty($settings['enabled']), 'ttl' => (int) $settings['ttl'], 'additional_paths' => self::setting_lines((string) $settings['exclude_paths']), 'additional_cookies' => self::setting_lines((string) $settings['exclude_cookies'])),
+            'policy' => array('enabled' => !empty($settings['enabled']), 'ttl' => (int) $settings['ttl'], 'preload_schedule' => (string) ($settings['preload_schedule'] ?? 'daily'), 'additional_paths' => self::setting_lines((string) $settings['exclude_paths']), 'additional_cookies' => self::setting_lines((string) $settings['exclude_cookies'])),
             'infrastructure' => array('varnish_enabled' => !empty($settings['varnish_enabled']), 'object_cache' => wp_using_ext_object_cache(), 'spaces_enabled' => !empty($settings['spaces_enabled']), 'spaces_region' => (string) $settings['spaces_region'], 'spaces_bucket' => (string) $settings['spaces_bucket'], 'namespace' => self::site_host() . '/'),
             'recent_activity' => self::activity(),
         );
@@ -539,6 +571,9 @@ final class LEC_Cache {
         $queue = (array) get_option('lec_preload_queue', array());
         $retries = (array) get_option('lec_spaces_retry_queue', array());
         $last = (array) get_option('lec_last_system_test', array());
+        $last_preload = (array) get_option('lec_last_automatic_preload', array());
+        $next_preload = wp_next_scheduled('lec_daily_preload');
+        $automatic_preload = !empty($settings['enabled']) && ($settings['preload_schedule'] ?? 'daily') === 'daily';
         return array(
             'Plugin version' => LEC_VERSION,
             'Update source' => class_exists('LEC_Updater') ? 'GitHub — ' . LEC_Updater::repository() : 'Unavailable',
@@ -552,6 +587,9 @@ final class LEC_Cache {
             'Namespace' => self::site_host() . '/',
             'Pending regeneration' => (string) count($queue),
             'Pending Spaces retries' => (string) count($retries),
+            'Automatic preload' => $automatic_preload ? 'Daily — staggered between 04:00 and 05:30' : 'Disabled',
+            'Next automatic preload' => $automatic_preload && $next_preload ? wp_date('Y-m-d H:i:s', (int) $next_preload) : 'Not scheduled',
+            'Last automatic preload' => empty($last_preload['time']) ? 'Not run' : wp_date('Y-m-d H:i:s', (int) $last_preload['time']) . ' — ' . absint($last_preload['count'] ?? 0) . ' URLs queued',
             'Next expired-file cleanup' => wp_next_scheduled('lec_cache_cleanup') ? wp_date('Y-m-d H:i:s', (int) wp_next_scheduled('lec_cache_cleanup')) : 'Not scheduled',
             'Last system test' => empty($last['time']) ? 'Not run' : wp_date('Y-m-d H:i:s', (int) $last['time']) . ' — ' . sanitize_text_field((string) ($last['summary'] ?? '')),
         );

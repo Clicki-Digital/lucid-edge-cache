@@ -60,6 +60,7 @@ final class LEC_Admin {
             return;
         }
         add_options_page('Lucid Edge Cache', 'Lucid Edge Cache', 'manage_options', 'lucid-edge-cache', array(__CLASS__, 'page'));
+        add_options_page('Lucid Edge Cache Records', 'Lucid Cache Records', 'manage_options', 'lucid-edge-cache-records', array(__CLASS__, 'records_page'));
         if (!LEC_Config::is_locked()) {
             add_submenu_page('options-general.php', 'Lucid Edge Cache Setup', 'Lucid Cache Setup', 'manage_options', 'lucid-edge-cache-setup', array(__CLASS__, 'setup_page'));
         }
@@ -319,7 +320,7 @@ final class LEC_Admin {
         <?php submit_button(); ?></form>
         <h2>Understanding cache headers</h2><p><code>X-Lucid-Cache: HIT</code> means local HTML was served. <code>MISS</code> means the response can be cached and is being generated. <code>BYPASS</code> means the request was deliberately excluded; <code>X-Lucid-Cache-Reason</code> gives a safe explanation without exposing private data.</p>
         <hr><h2>Tools</h2>
-        <p><a class="button button-secondary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_purge'), 'lec_purge')); ?>">Clear and purge</a> <a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_preload'), 'lec_preload')); ?>">Preload published content</a></p>
+        <p><a class="button button-secondary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_purge'), 'lec_purge')); ?>">Clear and purge</a> <a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_preload'), 'lec_preload')); ?>">Preload published content</a> <a class="button" href="<?php echo esc_url(admin_url('options-general.php?page=lucid-edge-cache-records')); ?>">View cached pages</a></p>
         <p><a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_system_test'), 'lec_system_test')); ?>">Run system test</a> <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_test_varnish'), 'lec_test_varnish')); ?>">Test Varnish purge</a> <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_test_spaces'), 'lec_test_spaces')); ?>">Test Spaces</a></p>
         <?php $health = LEC_Cache::health(); ?><h2>System health</h2><table class="widefat striped"><tbody>
         <?php foreach ($health as $label => $value) : ?><tr><th><?php echo esc_html($label); ?></th><td><?php echo esc_html($value); ?></td></tr><?php endforeach; ?>
@@ -340,6 +341,37 @@ final class LEC_Admin {
         <?php foreach (LEC_Cache::activity() as $row) : ?><tr><td><?php echo esc_html(wp_date('Y-m-d H:i:s', (int) ($row['time'] ?? 0))); ?></td><td><?php echo esc_html(self::display_label((string) ($row['event'] ?? ''))); ?></td><td><?php echo esc_html(self::display_label((string) ($row['status'] ?? ''))); ?></td><td><?php echo esc_html((string) ($row['detail'] ?? '')); ?></td></tr><?php endforeach; ?>
         </tbody></table>
         </div></details>
+        </div><?php
+    }
+
+    public static function records_page(): void {
+        if (!current_user_can('manage_options')) return;
+        $records = LEC_Cache::cached_records();
+        $per_page = 100;
+        $total = count($records);
+        $pages = max(1, (int) ceil($total / $per_page));
+        $current = max(1, min($pages, absint($_GET['paged'] ?? 1)));
+        $visible = array_slice($records, ($current - 1) * $per_page, $per_page);
+        ?>
+        <div class="wrap"><h1>Lucid Edge Cache Records</h1>
+        <p><a href="<?php echo esc_url(admin_url('options-general.php?page=lucid-edge-cache')); ?>">&larr; Back to Lucid Edge Cache settings</a></p>
+        <p><?php echo esc_html(number_format_i18n($total)); ?> local cached record<?php echo $total === 1 ? '' : 's'; ?>. CDN links are constructed from the configured Spaces CDN URL; open a link to verify the remote copy directly.</p>
+        <table class="widefat striped"><thead><tr><th>Page</th><th>Status</th><th>Generated</th><th>Age</th><th>Life remaining</th><th>Size</th><th>Queue</th><th>Spaces CDN</th></tr></thead><tbody>
+        <?php if (!$visible) : ?><tr><td colspan="8">No locally cached pages were found. Run Preload published content or visit a public page while logged out.</td></tr><?php endif; ?>
+        <?php foreach ($visible as $record) : ?>
+        <tr>
+        <td><a href="<?php echo esc_url((string) $record['url']); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html((string) wp_parse_url((string) $record['url'], PHP_URL_PATH) ?: '/'); ?></a><br><code><?php echo esc_html((string) $record['relative']); ?></code></td>
+        <td><strong><?php echo esc_html((string) $record['status']); ?></strong></td>
+        <td><?php echo esc_html(wp_date('Y-m-d H:i:s', (int) $record['modified'])); ?></td>
+        <td><?php echo esc_html(human_time_diff((int) $record['modified'], time())); ?></td>
+        <td><?php echo $record['status'] === 'Fresh' ? esc_html(human_time_diff(time(), time() + (int) $record['remaining'])) : 'Expired'; ?></td>
+        <td><?php echo esc_html(size_format((int) $record['size'])); ?></td>
+        <td><?php echo !empty($record['queued']) ? 'Regeneration queued' : '—'; ?></td>
+        <td><?php if (!empty($record['spaces_retry'])) : ?><strong>Upload retry queued</strong><?php elseif (!empty($record['cdn_url'])) : ?><a href="<?php echo esc_url((string) $record['cdn_url']); ?>" target="_blank" rel="noopener noreferrer">Open CDN copy</a><?php else : ?>Unavailable<?php endif; ?></td>
+        </tr>
+        <?php endforeach; ?>
+        </tbody></table>
+        <?php if ($pages > 1) echo wp_kses_post(paginate_links(array('base' => admin_url('options-general.php?page=lucid-edge-cache-records&paged=%#%'), 'format' => '', 'current' => $current, 'total' => $pages, 'type' => 'list'))); ?>
         </div><?php
     }
 

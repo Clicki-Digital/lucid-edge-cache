@@ -3,7 +3,7 @@ Contributors: lucidsolutions
 Tags: cache, varnish, digitalocean, spaces, performance
 Requires at least: 6.4
 Requires PHP: 8.0
-Stable tag: 0.8.0
+Stable tag: 0.9.0
 License: GPLv2 or later
 
 Safe anonymous full-page caching with Varnish purging and optional DigitalOcean Spaces HTML replication.
@@ -52,6 +52,11 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * Do not enable alongside another plugin that owns wp-content/advanced-cache.php.
 
 == Changelog ==
+= 0.9.0 =
+* Added a Cached Pages administration screen linked from the main settings page.
+* Listed each local cache record with freshness, creation time, age, remaining life, size and regeneration-queue state.
+* Added direct Spaces CDN links when replication and a valid CDN base URL are configured, while flagging pending upload retries.
+
 = 0.8.0 =
 * Added optional daily automatic cache warming, enabled by default.
 * Staggered each site's warm-up between 4:00 and 5:30 am in its WordPress timezone to reduce shared-server load.

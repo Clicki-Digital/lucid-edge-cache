@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.7 test checklist
+# Lucid Edge Cache 0.8 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -55,6 +55,9 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Enter a Varnish endpoint for an unrelated host and confirm it is rejected.
 - Trigger several simultaneous requests for an expired URL and confirm one response acquires the generation lock while others wait or receive a short-lived stale response.
 - Confirm daily cleanup removes expired HTML and abandoned lock files while leaving fresh HTML intact.
+- Confirm Daily automatic preload schedules one `lec_daily_preload` event between 04:00 and 05:30 in the WordPress timezone, records its last run, queues published URLs in batches of five, and schedules the following day.
+- Change Automatic preload to Off and confirm the daily event is removed without affecting manual preloading.
+- Disable page caching and confirm automatic preloading is unscheduled; re-enable it and confirm the event returns.
 - Inspect cached, expired, absent and protected URLs and confirm the inspector does not request or modify them.
 - Download diagnostics and confirm credentials, tokens and cookie values are absent.
 - Disable caching with Emergency disable, confirm dynamic WordPress remains available, then re-enable caching.

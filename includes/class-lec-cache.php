@@ -478,6 +478,56 @@ final class LEC_Cache {
         return array('count' => $count, 'bytes' => $bytes);
     }
 
+    public static function cached_records(): array {
+        $dir = rtrim(LEC_CACHE_DIR, '/\\') . '/pages';
+        if (!is_dir($dir)) return array();
+        $settings = self::settings();
+        $ttl = max(60, (int) $settings['ttl']);
+        $host = self::site_host();
+        $prefix = trim((string) ($settings['spaces_prefix'] ?? ''), '/');
+        $cdn_base = untrailingslashit((string) ($settings['spaces_cdn_url'] ?? ''));
+        $queued_paths = array();
+        foreach ((array) get_option('lec_preload_queue', array()) as $item) {
+            $url = is_array($item) ? (string) ($item['url'] ?? '') : (string) $item;
+            if ($url !== '') $queued_paths[self::relative_cache_path($host, (string) wp_parse_url($url, PHP_URL_PATH))] = true;
+        }
+        $spaces_retries = array();
+        foreach ((array) get_option('lec_spaces_retry_queue', array()) as $item) {
+            if (($item['operation'] ?? '') === 'upload' && !empty($item['key'])) $spaces_retries[ltrim((string) $item['key'], '/')] = true;
+        }
+        $records = array();
+        $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+        foreach ($iterator as $file) {
+            if (!$file->isFile() || $file->getExtension() !== 'html') continue;
+            $relative = str_replace('\\', '/', substr($file->getPathname(), strlen($dir) + 1));
+            if (strpos($relative, $host . '/') !== 0) continue;
+            $object_key = ($prefix !== '' ? $prefix . '/' : '') . $relative;
+            $path = substr($relative, strlen($host) + 1);
+            $origin_path = $path === 'index.html' ? '' : preg_replace('#/index\.html$#', '', $path);
+            $modified = (int) $file->getMTime();
+            $age = max(0, time() - $modified);
+            $fresh = $age <= $ttl;
+            $cdn_url = '';
+            if (!empty($settings['spaces_enabled']) && $cdn_base !== '' && wp_http_validate_url($cdn_base)) {
+                $cdn_url = $cdn_base . '/' . implode('/', array_map('rawurlencode', explode('/', $object_key)));
+            }
+            $records[] = array(
+                'url' => $origin_path === '' ? home_url('/') : home_url('/' . trim((string) $origin_path, '/') . '/'),
+                'relative' => $relative,
+                'status' => $fresh ? 'Fresh' : 'Expired',
+                'modified' => $modified,
+                'age' => $age,
+                'remaining' => $fresh ? max(0, ($modified + $ttl) - time()) : 0,
+                'size' => (int) $file->getSize(),
+                'queued' => isset($queued_paths[$relative]),
+                'spaces_retry' => isset($spaces_retries[$relative]),
+                'cdn_url' => $cdn_url,
+            );
+        }
+        usort($records, static function (array $a, array $b): int { return strcasecmp((string) $a['url'], (string) $b['url']); });
+        return $records;
+    }
+
     public static function cleanup_expired(): int {
         $dir = LEC_CACHE_DIR . '/pages';
         if (!is_dir($dir)) return 0;

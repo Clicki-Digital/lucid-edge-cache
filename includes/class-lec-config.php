@@ -112,7 +112,8 @@ final class LEC_Config {
         if (!is_readable($path)) return new WP_Error('lec_config_not_readable', 'PHP cannot read wp-config.php at ' . $path . '. Check its ownership and permissions.');
         $original = file_get_contents($path);
         if ($original === false || strpos($original, 'wp-settings.php') === false) return new WP_Error('lec_config_invalid', 'The WordPress bootstrap marker was not found.');
-        if (self::wp_cache_is_enabled_once($original)) return true;
+        $already_enabled = self::wp_cache_is_enabled_once($original);
+        if ($already_enabled && (!is_writable($path) || !is_writable(dirname($path)))) return true;
         $updated = self::canonicalise_wp_cache($original);
         if (is_wp_error($updated)) return $updated;
         if ($updated === $original) return true;

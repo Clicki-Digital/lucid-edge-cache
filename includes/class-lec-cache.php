@@ -269,7 +269,13 @@ final class LEC_Cache {
         $headers = headers_list();
         foreach ($headers as $header) {
             if (stripos($header, 'content-type:') === 0 && stripos($header, 'text/html') === false) { self::send_bypass_header('response-type'); self::release_generation_lock(); return $html; }
-            if (stripos($header, 'set-cookie:') === 0) { self::send_bypass_header('response-cookie'); self::release_generation_lock(); return $html; }
+            if (stripos($header, 'set-cookie:') === 0) {
+                $cookie = trim((string) strtok(trim(substr($header, strlen('set-cookie:'))), '='));
+                $cookie = (string) preg_replace('/[^A-Za-z0-9_.-]/', '', $cookie);
+                self::send_bypass_header('response-cookie', $cookie);
+                self::release_generation_lock();
+                return $html;
+            }
         }
         $relative = self::relative_cache_path(self::site_host(), (string) ($_SERVER['REQUEST_URI'] ?? '/'));
         $path = LEC_CACHE_DIR . '/pages/' . $relative;
@@ -296,11 +302,13 @@ final class LEC_Cache {
         unset($GLOBALS['lec_cache_lock_handle'], $GLOBALS['lec_cache_lock_path']);
     }
 
-    private static function send_bypass_header(string $reason): void {
+    private static function send_bypass_header(string $reason, string $detail = ''): void {
         if (headers_sent()) return;
+        $explanation = self::bypass_explanation($reason);
+        if ($reason === 'response-cookie' && $detail !== '') $explanation .= ' Cookie name: ' . $detail . '.';
         header('X-Lucid-Cache: BYPASS');
         header('X-Lucid-Cache-Reason: ' . sanitize_key($reason));
-        header('X-Lucid-Cache-Explanation: ' . self::bypass_explanation($reason));
+        header('X-Lucid-Cache-Explanation: ' . $explanation);
     }
 
     private static function relative_cache_path(string $host, string $uri): string {

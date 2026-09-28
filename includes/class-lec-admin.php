@@ -8,11 +8,13 @@ final class LEC_Admin {
         add_action('admin_init', array(__CLASS__, 'ensure_prerequisites'), 0);
         add_action('admin_init', array(__CLASS__, 'maybe_redirect_setup'), 1);
         add_action('admin_menu', array(__CLASS__, 'menu'));
+        add_action('admin_bar_menu', array(__CLASS__, 'admin_bar_menu'), 90);
         add_action('admin_init', array(__CLASS__, 'register'));
         add_action('update_option_lec_settings', array(__CLASS__, 'settings_saved'), 10, 2);
         add_action('admin_notices', array(__CLASS__, 'notices'));
         add_action('admin_post_lec_purge', array(__CLASS__, 'purge'));
         add_action('admin_post_lec_preload', array(__CLASS__, 'preload'));
+        add_action('admin_post_lec_clear_preload', array(__CLASS__, 'clear_preload'));
         add_action('admin_post_lec_regenerate_url', array(__CLASS__, 'regenerate_url'));
         add_action('admin_post_lec_test_spaces', array(__CLASS__, 'test_spaces'));
         add_action('admin_post_lec_test_varnish', array(__CLASS__, 'test_varnish'));
@@ -27,7 +29,7 @@ final class LEC_Admin {
 
     public static function plugin_action_links(array $links): array {
         $page = LEC_Config::is_configured() ? 'lucid-edge-cache' : 'lucid-edge-cache-setup';
-        $settings_link = '<a href="' . esc_url(admin_url('options-general.php?page=' . $page)) . '">' . esc_html__('Settings', 'lucid-edge-cache') . '</a>';
+        $settings_link = '<a href="' . esc_url(self::page_url($page)) . '">' . esc_html__('Settings', 'lucid-edge-cache') . '</a>';
         array_unshift($links, $settings_link);
         return $links;
     }
@@ -44,27 +46,40 @@ final class LEC_Admin {
 
     public static function maybe_redirect_setup(): void {
         if (isset($_GET['page']) && $_GET['page'] === 'lucid-edge-cache' && !LEC_Config::is_configured()) {
-            wp_safe_redirect(admin_url('options-general.php?page=lucid-edge-cache-setup')); exit;
+            wp_safe_redirect(self::page_url('lucid-edge-cache-setup')); exit;
         }
         if (isset($_GET['page']) && $_GET['page'] === 'lucid-edge-cache-setup' && LEC_Config::is_locked()) {
-            wp_safe_redirect(add_query_arg('lec_notice', 'already_configured', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+            wp_safe_redirect(add_query_arg('lec_notice', 'already_configured', self::page_url())); exit;
         }
         if (!get_transient('lec_activation_redirect')) return;
         delete_transient('lec_activation_redirect');
         if (!current_user_can('manage_options') || wp_doing_ajax() || isset($_GET['activate-multi'])) return;
-        wp_safe_redirect(admin_url('options-general.php?page=lucid-edge-cache-setup')); exit;
+        wp_safe_redirect(self::page_url('lucid-edge-cache-setup')); exit;
     }
 
     public static function menu(): void {
         if (!LEC_Config::is_configured()) {
-            add_options_page('Lucid Edge Cache Setup', 'Lucid Edge Cache', 'manage_options', 'lucid-edge-cache-setup', array(__CLASS__, 'setup_page'));
+            add_menu_page('Lucid Edge Cache Setup', 'Cache', 'manage_options', 'lucid-edge-cache-setup', array(__CLASS__, 'setup_page'), 'dashicons-performance', 75);
             return;
         }
-        add_options_page('Lucid Edge Cache', 'Lucid Edge Cache', 'manage_options', 'lucid-edge-cache', array(__CLASS__, 'page'));
-        add_options_page('Lucid Edge Cache Records', 'Lucid Cache Records', 'manage_options', 'lucid-edge-cache-records', array(__CLASS__, 'records_page'));
+        add_menu_page('Lucid Edge Cache', 'Cache', 'manage_options', 'lucid-edge-cache', array(__CLASS__, 'page'), 'dashicons-performance', 75);
+        add_submenu_page('lucid-edge-cache', 'Lucid Edge Cache Settings', 'Settings', 'manage_options', 'lucid-edge-cache', array(__CLASS__, 'page'));
+        add_submenu_page('lucid-edge-cache', 'Lucid Edge Cache Records', 'Cached Pages', 'manage_options', 'lucid-edge-cache-records', array(__CLASS__, 'records_page'));
         if (!LEC_Config::is_locked()) {
-            add_submenu_page('options-general.php', 'Lucid Edge Cache Setup', 'Lucid Cache Setup', 'manage_options', 'lucid-edge-cache-setup', array(__CLASS__, 'setup_page'));
+            add_submenu_page('lucid-edge-cache', 'Lucid Edge Cache Setup', 'Setup', 'manage_options', 'lucid-edge-cache-setup', array(__CLASS__, 'setup_page'));
         }
+    }
+
+    public static function admin_bar_menu($admin_bar): void {
+        if (!current_user_can('manage_options')) return;
+        $configured = LEC_Config::is_configured();
+        $destination = $configured ? self::page_url() : self::page_url('lucid-edge-cache-setup');
+        $admin_bar->add_node(array('id' => 'lucid-edge-cache', 'title' => 'Cache', 'href' => $destination));
+        if ($configured) {
+            $admin_bar->add_node(array('parent' => 'lucid-edge-cache', 'id' => 'lucid-edge-cache-clear', 'title' => 'Clear cache', 'href' => wp_nonce_url(admin_url('admin-post.php?action=lec_purge'), 'lec_purge')));
+            $admin_bar->add_node(array('parent' => 'lucid-edge-cache', 'id' => 'lucid-edge-cache-clear-preload', 'title' => 'Clear and preload cache', 'href' => wp_nonce_url(admin_url('admin-post.php?action=lec_clear_preload'), 'lec_clear_preload')));
+        }
+        $admin_bar->add_node(array('parent' => 'lucid-edge-cache', 'id' => 'lucid-edge-cache-settings', 'title' => 'Settings', 'href' => $destination));
     }
 
     public static function register(): void {
@@ -117,39 +132,46 @@ final class LEC_Admin {
     public static function purge(): void {
         check_admin_referer('lec_purge'); if (!current_user_can('manage_options')) wp_die('Forbidden');
         LEC_Cache::purge_all();
-        wp_safe_redirect(add_query_arg('lec_notice', 'purged', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg('lec_notice', 'purged', self::page_url())); exit;
     }
 
     public static function preload(): void {
         check_admin_referer('lec_preload'); if (!current_user_can('manage_options')) wp_die('Forbidden');
         $count = LEC_Cache::queue_preload();
-        wp_safe_redirect(add_query_arg(array('lec_notice' => 'queued', 'count' => $count), admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg(array('lec_notice' => 'queued', 'count' => $count), self::page_url())); exit;
+    }
+
+    public static function clear_preload(): void {
+        check_admin_referer('lec_clear_preload'); if (!current_user_can('manage_options')) wp_die('Forbidden');
+        LEC_Cache::purge_all();
+        $count = LEC_Cache::queue_preload();
+        wp_safe_redirect(add_query_arg(array('lec_notice' => 'purged_queued', 'count' => $count), self::page_url())); exit;
     }
 
     public static function regenerate_url(): void {
         check_admin_referer('lec_regenerate_url'); if (!current_user_can('manage_options')) wp_die('Forbidden');
         $url = esc_url_raw(wp_unslash($_POST['lec_url'] ?? ''));
         $ok = LEC_Cache::queue_url($url);
-        wp_safe_redirect(add_query_arg('lec_notice', $ok ? 'url_queued' : 'invalid_url', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg('lec_notice', $ok ? 'url_queued' : 'invalid_url', self::page_url())); exit;
     }
 
     public static function test_spaces(): void {
         check_admin_referer('lec_test_spaces'); if (!current_user_can('manage_options')) wp_die('Forbidden');
         $ok = LEC_Spaces::test(LEC_Cache::settings());
-        wp_safe_redirect(add_query_arg('lec_notice', $ok ? 'spaces_ok' : 'spaces_failed', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg('lec_notice', $ok ? 'spaces_ok' : 'spaces_failed', self::page_url())); exit;
     }
 
     public static function test_varnish(): void {
         check_admin_referer('lec_test_varnish'); if (!current_user_can('manage_options')) wp_die('Forbidden');
         LEC_Cache::test_varnish();
-        wp_safe_redirect(add_query_arg('lec_notice', 'varnish_tested', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg('lec_notice', 'varnish_tested', self::page_url())); exit;
     }
 
     public static function system_test(): void {
         check_admin_referer('lec_system_test');
         if (!current_user_can('manage_options')) wp_die('Forbidden');
         LEC_Cache::run_system_test();
-        wp_safe_redirect(add_query_arg('lec_notice', 'system_tested', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg('lec_notice', 'system_tested', self::page_url())); exit;
     }
 
     public static function cache_state(): void {
@@ -157,7 +179,7 @@ final class LEC_Admin {
         if (!current_user_can('manage_options')) wp_die('Forbidden');
         $enabled = ($_GET['state'] ?? '') === 'enable';
         LEC_Cache::set_enabled($enabled);
-        wp_safe_redirect(add_query_arg('lec_notice', $enabled ? 'cache_enabled' : 'cache_disabled', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg('lec_notice', $enabled ? 'cache_enabled' : 'cache_disabled', self::page_url())); exit;
     }
 
     public static function queue_action(): void {
@@ -174,7 +196,7 @@ final class LEC_Admin {
             wp_clear_scheduled_hook('lec_preload_batch');
             wp_clear_scheduled_hook('lec_spaces_retry_batch');
         }
-        wp_safe_redirect(add_query_arg('lec_notice', $operation === 'clear' ? 'queues_cleared' : 'queues_retried', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg('lec_notice', $operation === 'clear' ? 'queues_cleared' : 'queues_retried', self::page_url())); exit;
     }
 
     public static function inspect_url(): void {
@@ -182,7 +204,7 @@ final class LEC_Admin {
         if (!current_user_can('manage_options')) wp_die('Forbidden');
         $url = esc_url_raw(wp_unslash($_POST['lec_inspect_url'] ?? ''));
         set_transient('lec_inspection_' . get_current_user_id(), LEC_Cache::inspect_url($url), 5 * MINUTE_IN_SECONDS);
-        wp_safe_redirect(admin_url('options-general.php?page=lucid-edge-cache#lec-url-inspector')); exit;
+        wp_safe_redirect(self::page_url() . '#lec-url-inspector'); exit;
     }
 
     public static function diagnostics(): void {
@@ -214,7 +236,7 @@ final class LEC_Admin {
         }
         set_transient('lec_cdn_verification_' . get_current_user_id(), $result, 2 * MINUTE_IN_SECONDS);
         $paged = max(1, absint($_GET['paged'] ?? 1));
-        wp_safe_redirect(add_query_arg(array('page' => 'lucid-edge-cache-records', 'paged' => $paged), admin_url('options-general.php'))); exit;
+        wp_safe_redirect(add_query_arg(array('page' => 'lucid-edge-cache-records', 'paged' => $paged), admin_url('admin.php'))); exit;
     }
 
     public static function onboard(): void {
@@ -236,23 +258,23 @@ final class LEC_Admin {
         );
         if (!preg_match('/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/', $values['spaces_bucket']) || !preg_match('/^[a-z0-9-]+$/', $values['spaces_region'])) {
             set_transient('lec_setup_error_' . get_current_user_id(), 'Enter a valid Spaces bucket and region. Nothing was written to wp-config.php.', 60);
-            wp_safe_redirect(admin_url('options-general.php?page=lucid-edge-cache-setup')); exit;
+            wp_safe_redirect(self::page_url('lucid-edge-cache-setup')); exit;
         }
         $settings = array('spaces_bucket' => $values['spaces_bucket'], 'spaces_region' => $values['spaces_region']);
         if (!LEC_Spaces::test_credentials($values['spaces_key'], $values['spaces_secret'], $settings)) {
             set_transient('lec_setup_error_' . get_current_user_id(), 'Spaces connection failed. Nothing was written to wp-config.php.', 60);
-            wp_safe_redirect(admin_url('options-general.php?page=lucid-edge-cache-setup')); exit;
+            wp_safe_redirect(self::page_url('lucid-edge-cache-setup')); exit;
         }
         if (!LEC_Cache::valid_varnish_endpoint($values['varnish_url']) || !LEC_Cache::test_varnish_endpoint($values['varnish_url'])) {
             set_transient('lec_setup_error_' . get_current_user_id(), 'Varnish purge test failed. Nothing was written to wp-config.php.', 60);
-            wp_safe_redirect(admin_url('options-general.php?page=lucid-edge-cache-setup')); exit;
+            wp_safe_redirect(self::page_url('lucid-edge-cache-setup')); exit;
         }
         $result = LEC_Config::write($values);
         if (is_wp_error($result)) {
             $block = LEC_Config::block($values);
             nocache_headers();
             wp_die(
-                '<h1>Manual configuration required</h1><p>' . esc_html($result->get_error_message()) . '</p><p>Copy this block into <code>wp-config.php</code> above the WordPress bootstrap line. This response is generated directly and has not been stored in WordPress.</p><textarea style="width:100%;min-height:320px" readonly>' . esc_textarea($block) . '</textarea><p><a href="' . esc_url(admin_url('options-general.php?page=lucid-edge-cache-setup')) . '">Return to setup</a></p>',
+                '<h1>Manual configuration required</h1><p>' . esc_html($result->get_error_message()) . '</p><p>Copy this block into <code>wp-config.php</code> above the WordPress bootstrap line. This response is generated directly and has not been stored in WordPress.</p><textarea style="width:100%;min-height:320px" readonly>' . esc_textarea($block) . '</textarea><p><a href="' . esc_url(self::page_url('lucid-edge-cache-setup')) . '">Return to setup</a></p>',
                 'Lucid Edge Cache setup',
                 array('response' => 500)
             );
@@ -271,7 +293,11 @@ final class LEC_Admin {
             LEC_Cache::write_runtime_config($runtime);
             LEC_Cache::log('onboarding', 'success', LEC_Cache::site_host());
         }
-        wp_safe_redirect(add_query_arg('lec_notice', 'configured', admin_url('options-general.php?page=lucid-edge-cache'))); exit;
+        wp_safe_redirect(add_query_arg('lec_notice', 'configured', self::page_url())); exit;
+    }
+
+    private static function page_url(string $page = 'lucid-edge-cache'): string {
+        return admin_url('admin.php?page=' . $page);
     }
 
     private static function check(string $name, array $s): void { echo '<input type="checkbox" name="lec_settings[' . esc_attr($name) . ']" value="1" ' . checked(!empty($s[$name]), true, false) . '>'; }
@@ -287,6 +313,7 @@ final class LEC_Admin {
         $s = LEC_Cache::settings(); $stats = LEC_Cache::cache_stats();
         if (($_GET['lec_notice'] ?? '') === 'purged') echo '<div class="notice notice-success"><p>Local cache cleared and downstream purge requested.</p></div>';
         if (($_GET['lec_notice'] ?? '') === 'queued') echo '<div class="notice notice-success"><p>' . absint($_GET['count'] ?? 0) . ' URLs queued for preloading.</p></div>';
+        if (($_GET['lec_notice'] ?? '') === 'purged_queued') echo '<div class="notice notice-success"><p>Cache cleared and downstream purge requested. ' . absint($_GET['count'] ?? 0) . ' URLs were queued for preloading.</p></div>';
         if (($_GET['lec_notice'] ?? '') === 'url_queued') echo '<div class="notice notice-success"><p>The URL was cleared and queued for regeneration.</p></div>';
         if (($_GET['lec_notice'] ?? '') === 'invalid_url') echo '<div class="notice notice-error"><p>Enter a valid URL from this WordPress site.</p></div>';
         if (($_GET['lec_notice'] ?? '') === 'spaces_ok') echo '<div class="notice notice-success"><p>Spaces upload and deletion test succeeded.</p></div>';
@@ -354,7 +381,7 @@ final class LEC_Admin {
         </tbody></table></details>
         <p><strong>Lock states:</strong> <code>ACQUIRED</code> means this request is generating the page; <code>WAITED</code> means it briefly waited for another request; <code>BUSY</code> means another request is already generating or refreshing that page. A busy lock is normal during simultaneous first visits and is not an error by itself.</p>
         <hr><h2>Tools</h2>
-        <p><a class="button button-secondary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_purge'), 'lec_purge')); ?>">Clear and purge</a> <a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_preload'), 'lec_preload')); ?>">Preload published content</a> <a class="button" href="<?php echo esc_url(admin_url('options-general.php?page=lucid-edge-cache-records')); ?>">View cached pages</a></p>
+        <p><a class="button button-secondary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_purge'), 'lec_purge')); ?>">Clear and purge</a> <a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_clear_preload'), 'lec_clear_preload')); ?>">Clear and preload</a> <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_preload'), 'lec_preload')); ?>">Preload published content</a> <a class="button" href="<?php echo esc_url(self::page_url('lucid-edge-cache-records')); ?>">View cached pages</a></p>
         <p><a class="button button-primary" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_system_test'), 'lec_system_test')); ?>">Run system test</a> <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_test_varnish'), 'lec_test_varnish')); ?>">Test Varnish purge</a> <a class="button" href="<?php echo esc_url(wp_nonce_url(admin_url('admin-post.php?action=lec_test_spaces'), 'lec_test_spaces')); ?>">Test Spaces</a></p>
         <?php $health = LEC_Cache::health(); ?><h2>System health</h2><table class="widefat striped"><tbody>
         <?php foreach ($health as $label => $value) : ?><tr><th><?php echo esc_html($label); ?></th><td><?php echo esc_html($value); ?></td></tr><?php endforeach; ?>
@@ -391,7 +418,7 @@ final class LEC_Admin {
         ?>
         <div class="wrap"><h1>Lucid Edge Cache Records</h1>
         <?php if (is_array($verification)) : ?><div class="notice <?php echo !empty($verification['success']) ? 'notice-success' : 'notice-error'; ?> inline"><p><strong>CDN verification:</strong> <?php echo esc_html((string) ($verification['message'] ?? 'Unknown result')); ?> — <code><?php echo esc_html((string) wp_parse_url((string) ($verification['url'] ?? ''), PHP_URL_PATH)); ?></code></p></div><?php endif; ?>
-        <p><a href="<?php echo esc_url(admin_url('options-general.php?page=lucid-edge-cache')); ?>">&larr; Back to Lucid Edge Cache settings</a></p>
+        <p><a href="<?php echo esc_url(self::page_url()); ?>">&larr; Back to Lucid Edge Cache settings</a></p>
         <p><?php echo esc_html(number_format_i18n($total)); ?> local cached record<?php echo $total === 1 ? '' : 's'; ?>. Use <strong>Verify object</strong> to check the remote response without rendering the page. Raw CDN HTML uses the CDN hostname, so missing fonts or visual differences caused by CORS are expected and do not indicate a failed cache object.</p>
         <table class="widefat striped"><thead><tr><th>Page</th><th>Status</th><th>Generated</th><th>Age</th><th>Life remaining</th><th>Size</th><th>Queue</th><th>Spaces CDN</th></tr></thead><tbody>
         <?php if (!$visible) : ?><tr><td colspan="8">No locally cached pages were found. Run Preload published content or visit a public page while logged out.</td></tr><?php endif; ?>
@@ -408,7 +435,7 @@ final class LEC_Admin {
         </tr>
         <?php endforeach; ?>
         </tbody></table>
-        <?php if ($pages > 1) echo wp_kses_post(paginate_links(array('base' => admin_url('options-general.php?page=lucid-edge-cache-records&paged=%#%'), 'format' => '', 'current' => $current, 'total' => $pages, 'type' => 'list'))); ?>
+        <?php if ($pages > 1) echo wp_kses_post(paginate_links(array('base' => admin_url('admin.php?page=lucid-edge-cache-records&paged=%#%'), 'format' => '', 'current' => $current, 'total' => $pages, 'type' => 'list'))); ?>
         </div><?php
     }
 
@@ -420,7 +447,11 @@ final class LEC_Admin {
         ?>
         <div class="wrap"><h1>Lucid Edge Cache Setup</h1><p>This one-time setup tests DigitalOcean Spaces, then writes the credentials directly to <code>wp-config.php</code>. Secrets are not stored in WordPress options, transients or activity logs.</p>
         <p><strong>Canonical hostname namespace:</strong> <code><?php echo esc_html(LEC_Cache::site_host()); ?>/</code></p>
-        <?php if (LEC_Config::is_locked()) : wp_safe_redirect(admin_url('options-general.php?page=lucid-edge-cache')); exit; endif; ?>
+        <?php if (LEC_Config::is_locked()) : wp_safe_redirect(self::page_url()); exit; endif; ?>
+        <?php $access = LEC_Config::access_report(); ?>
+        <h2>Configuration file access</h2>
+        <p>Lucid uses a temporary file in the same directory and replaces <code>wp-config.php</code> only after verification. Both the file and directory must be writable during automatic setup.</p>
+        <table class="widefat striped" style="max-width:900px"><tbody><?php foreach ($access as $label => $value) : ?><tr><th><?php echo esc_html($label); ?></th><td><code><?php echo esc_html((string) $value); ?></code></td></tr><?php endforeach; ?></tbody></table>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" autocomplete="off"><input type="hidden" name="action" value="lec_onboard"><?php wp_nonce_field('lec_onboard'); ?>
         <table class="form-table"><tr><th><label for="spaces_key">Spaces Access Key ID</label></th><td><input class="regular-text" id="spaces_key" name="spaces_key" required autocomplete="off"></td></tr>
         <tr><th><label for="spaces_secret">Spaces Secret Key</label></th><td><input class="regular-text" id="spaces_secret" name="spaces_secret" type="password" required autocomplete="new-password"></td></tr>

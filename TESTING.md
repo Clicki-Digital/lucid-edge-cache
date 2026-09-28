@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.9.2 test checklist
+# Lucid Edge Cache 0.9.3 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -34,7 +34,8 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Select each cache-lifetime preset, save settings and confirm the stored TTL and generated runtime configuration use the corresponding seconds.
 - Select Custom, test the 60-second and seven-day limits, and confirm preset selection hides the custom field again.
 - Confirm the Cache safety rules panel lists mandatory WordPress and WooCommerce bypasses separately from editable additional exclusions.
-- Confirm excluded requests return `X-Lucid-Cache: BYPASS` and a safe `X-Lucid-Cache-Reason` without cookie values or internal paths.
+- Confirm excluded requests return `X-Lucid-Cache: BYPASS`, a stable `X-Lucid-Cache-Reason` code and a useful plain-English `X-Lucid-Cache-Explanation` without cookie values or internal paths.
+- Confirm HIT, MISS, STALE, ACQUIRED, WAITED and BUSY responses include accurate explanation headers, and that the settings guide explains each status, lock state and bypass code.
 - Request a public page twice while logged out: first origin response is `MISS`, subsequent origin response is `HIT` with `X-Lucid-Cache-Age`.
 - Confirm logged-in, preview, POST, query-string, REST, search, feed, 404, password-protected and excluded commerce requests bypass the page cache.
 - Confirm a response that sets a cookie, is not HTML, is empty or does not return HTTP 200 is not written.
@@ -61,6 +62,7 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Change Automatic preload to Off and confirm the daily event is removed without affecting manual preloading.
 - Disable page caching and confirm automatic preloading is unscheduled; re-enable it and confirm the event returns.
 - Inspect cached, expired, absent and protected URLs and confirm the inspector does not request or modify them.
+- Confirm an eligible URL inspection clearly explains the remaining request-dependent checks and gives private-window MISS-to-HIT test instructions.
 - Download diagnostics and confirm credentials, tokens and cookie values are absent.
 - Disable caching with Emergency disable, confirm dynamic WordPress remains available, then re-enable caching.
 - Populate both background queues, test Retry pending work, then test Clear queues on staging.

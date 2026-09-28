@@ -3,7 +3,7 @@ Contributors: lucidsolutions
 Tags: cache, varnish, digitalocean, spaces, performance
 Requires at least: 6.4
 Requires PHP: 8.0
-Stable tag: 0.9.2
+Stable tag: 0.9.3
 License: GPLv2 or later
 
 Safe anonymous full-page caching with Varnish purging and optional DigitalOcean Spaces HTML replication.
@@ -52,6 +52,11 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * Do not enable alongside another plugin that owns wp-content/advanced-cache.php.
 
 == Changelog ==
+= 0.9.3 =
+* Added plain-English explanation headers alongside cache status, bypass-reason and generation-lock codes.
+* Expanded the settings guide with clear meanings, expected actions and a complete bypass-reason reference.
+* Reworded URL inspection results to explain eligibility and provide the exact next test instead of reporting request-dependent checks without guidance.
+
 = 0.9.2 =
 * Canonicalised WP_CACHE during activation and upgrades by replacing recognised existing definitions with one enabled definition.
 * Removed WP_CACHE from the plugin's managed infrastructure block so one routine owns the constant and duplicate definitions cannot accumulate.

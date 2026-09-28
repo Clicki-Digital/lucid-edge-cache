@@ -3,7 +3,7 @@ Contributors: lucidsolutions
 Tags: cache, varnish, digitalocean, spaces, performance
 Requires at least: 6.4
 Requires PHP: 8.0
-Stable tag: 0.9.1
+Stable tag: 0.9.2
 License: GPLv2 or later
 
 Safe anonymous full-page caching with Varnish purging and optional DigitalOcean Spaces HTML replication.
@@ -12,7 +12,7 @@ Safe anonymous full-page caching with Varnish purging and optional DigitalOcean 
 1. Back up the test site.
 2. Deactivate Breeze and remove its page-cache drop-in if WordPress reports a conflict.
 3. Upload and activate this plugin.
-4. Activation enables `WP_CACHE` in wp-config.php automatically when it is absent, then opens Settings > Lucid Cache Setup.
+4. Activation replaces recognised existing `WP_CACHE` definitions with one canonical enabled definition in wp-config.php, then opens Settings > Lucid Cache Setup.
 5. Enter the Spaces and Varnish details. The wizard tests both services before writing a marked configuration block to wp-config.php.
 6. Open Settings > Lucid Edge Cache, review cache policy, then select Preload published content.
 7. Test while logged out or in a private browser. Look for X-Lucid-Cache: MISS on the first origin request and HIT afterwards. An upstream Varnish hit may replay the original Lucid header.
@@ -52,6 +52,10 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * Do not enable alongside another plugin that owns wp-content/advanced-cache.php.
 
 == Changelog ==
+= 0.9.2 =
+* Canonicalised WP_CACHE during activation and upgrades by replacing recognised existing definitions with one enabled definition.
+* Removed WP_CACHE from the plugin's managed infrastructure block so one routine owns the constant and duplicate definitions cannot accumulate.
+
 = 0.9.1 =
 * Added administrator-triggered HTTP HEAD verification for individual Spaces CDN objects.
 * Relabelled direct CDN previews as raw HTML and explained that cross-origin font or styling differences are expected.

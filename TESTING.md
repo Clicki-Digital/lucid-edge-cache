@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.9.3 test checklist
+# Lucid Edge Cache 0.9.4 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -39,6 +39,7 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Confirm HIT, MISS, STALE, ACQUIRED, WAITED and BUSY responses include accurate explanation headers, and that the settings guide explains each status, lock state and bypass code.
 - Request a public page twice while logged out: first origin response is `MISS`, subsequent origin response is `HIT` with `X-Lucid-Cache-Age`.
 - Confirm logged-in, preview, POST, query-string, REST, search, feed, 404, password-protected and excluded commerce requests bypass the page cache.
+- Start a native PHP session and confirm both the initial `Set-Cookie: PHPSESSID` response and later requests carrying that cookie always bypass the cache.
 - Confirm a response that sets a cookie, is not HTML, is empty or does not return HTTP 200 is not written.
 
 ## Invalidation

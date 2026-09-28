@@ -50,7 +50,6 @@ final class LEC_Config {
             $lines[] = "defined('" . $constant . "') || define('" . $constant . "', " . var_export($value, true) . ');';
         }
         $lines[] = "defined('LEC_LOCK_SETTINGS') || define('LEC_LOCK_SETTINGS', " . (!empty($values['lock_settings']) ? 'true' : 'false') . ');';
-        $lines[] = "defined('WP_CACHE') || define('WP_CACHE', true);";
         $lines[] = self::END;
         return implode("\n", $lines);
     }
@@ -74,14 +73,17 @@ final class LEC_Config {
             if ($position === false) return new WP_Error('lec_config_marker', 'A safe insertion point could not be found.');
             $updated = substr($original, 0, $position) . $block . "\n\n" . substr($original, $position);
         }
-        if (!is_string($updated) || $updated === $original) return new WP_Error('lec_config_unchanged', 'No configuration change was produced.');
+        if (!is_string($updated)) return new WP_Error('lec_config_unchanged', 'No configuration change was produced.');
+        $updated = self::canonicalise_wp_cache($updated);
+        if (is_wp_error($updated)) return $updated;
+        if ($updated === $original) return new WP_Error('lec_config_unchanged', 'No configuration change was produced.');
         $permissions = fileperms($path);
         $mode = $permissions === false ? 0640 : ($permissions & 0777);
         $tmp = dirname($path) . '/.' . basename($path) . '.lec-' . wp_generate_password(10, false, false);
         if (file_put_contents($tmp, $updated, LOCK_EX) === false) return new WP_Error('lec_config_temp', 'The temporary configuration file could not be written.');
         @chmod($tmp, $mode);
         $check = (string) file_get_contents($tmp);
-        if (strpos($check, $block) === false || strpos($check, '<?php') !== 0 || !@rename($tmp, $path)) {
+        if (strpos($check, $block) === false || strpos($check, self::wp_cache_line()) === false || strpos($check, '<?php') !== 0 || !@rename($tmp, $path)) {
             @unlink($tmp);
             return new WP_Error('lec_config_commit', 'The configuration could not be committed; the original was left in place.');
         }
@@ -91,23 +93,14 @@ final class LEC_Config {
     }
 
     public static function ensure_wp_cache() {
-        if (defined('WP_CACHE') && WP_CACHE) return true;
         $path = self::path();
         if ($path === '' || !is_readable($path) || !is_writable($path)) return new WP_Error('lec_config_not_writable', 'wp-config.php is not writable.');
         $original = file_get_contents($path);
         if ($original === false || strpos($original, 'wp-settings.php') === false) return new WP_Error('lec_config_invalid', 'The WordPress bootstrap marker was not found.');
-        if (preg_match("/define\\s*\\(\\s*['\"]WP_CACHE['\"]\\s*,/i", $original)) {
-            return new WP_Error('lec_wp_cache_disabled', 'WP_CACHE is already defined but is not enabled.');
-        }
-        $markers = array('/* That\'s all, stop editing!', '/** Absolute path to the WordPress directory. */', "require_once ABSPATH . 'wp-settings.php';", 'require_once(ABSPATH . \'wp-settings.php\');');
-        $position = false;
-        foreach ($markers as $marker) {
-            $position = strpos($original, $marker);
-            if ($position !== false) break;
-        }
-        if ($position === false) return new WP_Error('lec_config_marker', 'A safe insertion point could not be found.');
-        $line = "defined('WP_CACHE') || define('WP_CACHE', true);\n\n";
-        $updated = substr($original, 0, $position) . $line . substr($original, $position);
+        $updated = self::canonicalise_wp_cache($original);
+        if (is_wp_error($updated)) return $updated;
+        if ($updated === $original) return true;
+        $line = self::wp_cache_line();
         $permissions = fileperms($path);
         $mode = $permissions === false ? 0640 : ($permissions & 0777);
         $tmp = dirname($path) . '/.' . basename($path) . '.lec-cache-' . wp_generate_password(10, false, false);
@@ -120,5 +113,29 @@ final class LEC_Config {
         }
         clearstatcache(true, $path);
         return true;
+    }
+
+    private static function wp_cache_line(): string {
+        return "define('WP_CACHE', true);";
+    }
+
+    private static function canonicalise_wp_cache(string $config) {
+        $patterns = array(
+            "~^[\t ]*defined\s*\(\s*(['\"])WP_CACHE\\1\s*\)\s*\|\|\s*define\s*\(\s*(['\"])WP_CACHE\\2\s*,[^;\r\n]*\)\s*;\s*(?:(?://|#)[^\r\n]*)?\R?~mi",
+            "~^[\t ]*define\s*\(\s*(['\"])WP_CACHE\\1\s*,[^;\r\n]*\)\s*;\s*(?:(?://|#)[^\r\n]*)?\R?~mi",
+        );
+        $without = preg_replace($patterns, '', $config);
+        if (!is_string($without)) return new WP_Error('lec_wp_cache_parse', 'The existing WP_CACHE definition could not be read safely.');
+        if (preg_match("~define\s*\(\s*(['\"])WP_CACHE\\1\s*,~i", $without)) {
+            return new WP_Error('lec_wp_cache_unsupported', 'WP_CACHE uses an unsupported multi-line definition. Update it manually to define WP_CACHE as true.');
+        }
+        $markers = array('/* That\'s all, stop editing!', '/** Absolute path to the WordPress directory. */', "require_once ABSPATH . 'wp-settings.php';", 'require_once(ABSPATH . \'wp-settings.php\');');
+        $position = false;
+        foreach ($markers as $marker) {
+            $position = strpos($without, $marker);
+            if ($position !== false) break;
+        }
+        if ($position === false) return new WP_Error('lec_config_marker', 'A safe insertion point could not be found.');
+        return substr($without, 0, $position) . self::wp_cache_line() . "\n\n" . substr($without, $position);
     }
 }

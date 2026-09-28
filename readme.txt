@@ -3,7 +3,7 @@ Contributors: lucidsolutions
 Tags: cache, varnish, digitalocean, spaces, performance
 Requires at least: 6.4
 Requires PHP: 8.0
-Stable tag: 0.9.4
+Stable tag: 0.9.5
 License: GPLv2 or later
 
 Safe anonymous full-page caching with Varnish purging and optional DigitalOcean Spaces HTML replication.
@@ -52,6 +52,14 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * Do not enable alongside another plugin that owns wp-content/advanced-cache.php.
 
 == Changelog ==
+= 0.9.5 =
+* Added a top-level Cache administration menu with Settings and Cached Pages navigation.
+* Added an administrator toolbar dropdown for clearing, clearing and preloading, or opening settings.
+* Added a combined clear-and-preload action with capability and nonce protection.
+* Added an administrator-only wp-config.php access report showing the resolved file, permissions and separate file/directory writability checks.
+* Stopped reporting a write failure when WP_CACHE is already correctly enabled in a protected read-only wp-config.php file.
+* Replaced generic wp-config.php write errors with specific missing-file, readability, file-permission and directory-permission guidance.
+
 = 0.9.4 =
 * Added PHPSESSID to the mandatory protected-cookie list so native PHP sessions always bypass public page caching, including responses that do not repeat the Set-Cookie header.
 

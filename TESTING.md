@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.9.4 test checklist
+# Lucid Edge Cache 0.9.5 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -21,6 +21,9 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Activate with no `WP_CACHE` definition and confirm the plugin inserts exactly one `define('WP_CACHE', true);` above the WordPress bootstrap marker.
 - Activate with `WP_CACHE` set to `false`, with the older guarded Lucid definition, and with duplicate recognised definitions; confirm each case is replaced by exactly one canonical enabled definition without changing unrelated wp-config.php content.
 - Test an unsupported multi-line `WP_CACHE` definition and an unwritable wp-config.php; confirm the plugin leaves the original file intact and displays an administrator error rather than appending a duplicate.
+- Protect a wp-config.php file that already contains one enabled `WP_CACHE` definition and confirm activation succeeds without attempting to rewrite it.
+- Test separately with an unreadable file, an unwritable file and an unwritable containing directory; confirm setup identifies the exact failure, current file mode where available, and resolved path.
+- Confirm the setup page access report accurately shows the resolved wp-config.php file, readability, file writability, directory writability and permissions.
 - Before onboarding, confirm only the Setup page is available and direct dashboard access redirects to Setup.
 - Leave or create an incomplete managed block and confirm the dashboard remains unavailable until all required Spaces settings are loaded.
 - Upgrade from 0.4.1 and confirm the dashboard reports version 0.5.0 and the drop-in as installed.
@@ -76,6 +79,10 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Use Verify object and confirm a successful Spaces object reports its HTTP status and content type without rendering the HTML; test a missing object and confirm the failure is shown only to the current administrator.
 
 ## Lifecycle and compatibility
+
+- Confirm administrators see a top-level Cache menu with Settings and Cached Pages, while users without `manage_options` do not.
+- Confirm the Cache toolbar dropdown offers Clear cache, Clear and preload cache, and Settings only to administrators, and rejects missing or invalid nonces.
+- Run Clear and preload cache and confirm local HTML and downstream caches are purged before the home page and all published content are queued.
 
 - Deactivate and confirm the Lucid drop-in and scheduled jobs are removed while configuration remains.
 - Reactivate and confirm runtime configuration and the drop-in are restored.

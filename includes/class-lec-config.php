@@ -32,6 +32,19 @@ final class LEC_Config {
         return true;
     }
 
+    public static function access_report(): array {
+        $path = self::path();
+        $directory = $path !== '' ? dirname($path) : '';
+        $permissions = $path !== '' ? fileperms($path) : false;
+        return array(
+            'Resolved file' => $path !== '' ? $path : 'Not found in the WordPress root or its parent directory',
+            'Readable by PHP' => $path !== '' && is_readable($path) ? 'Yes' : 'No',
+            'Writable by PHP' => $path !== '' && is_writable($path) ? 'Yes' : 'No',
+            'Directory writable' => $directory !== '' && is_writable($directory) ? 'Yes' : 'No',
+            'File permissions' => $permissions === false ? 'Unavailable' : sprintf('%04o', $permissions & 0777),
+        );
+    }
+
     public static function block(array $values): string {
         $lines = array(self::START);
         $map = array(
@@ -56,7 +69,8 @@ final class LEC_Config {
 
     public static function write(array $values) {
         $path = self::path();
-        if ($path === '' || !is_readable($path) || !is_writable($path)) return new WP_Error('lec_config_not_writable', 'wp-config.php is not writable.');
+        $access = self::write_access_error($path);
+        if (is_wp_error($access)) return $access;
         $original = file_get_contents($path);
         if ($original === false || strpos($original, 'wp-settings.php') === false) return new WP_Error('lec_config_invalid', 'The WordPress bootstrap marker was not found.');
         $block = self::block($values);
@@ -94,12 +108,16 @@ final class LEC_Config {
 
     public static function ensure_wp_cache() {
         $path = self::path();
-        if ($path === '' || !is_readable($path) || !is_writable($path)) return new WP_Error('lec_config_not_writable', 'wp-config.php is not writable.');
+        if ($path === '') return new WP_Error('lec_config_missing', 'wp-config.php was not found in the WordPress root or its parent directory.');
+        if (!is_readable($path)) return new WP_Error('lec_config_not_readable', 'PHP cannot read wp-config.php at ' . $path . '. Check its ownership and permissions.');
         $original = file_get_contents($path);
         if ($original === false || strpos($original, 'wp-settings.php') === false) return new WP_Error('lec_config_invalid', 'The WordPress bootstrap marker was not found.');
+        if (self::wp_cache_is_enabled_once($original)) return true;
         $updated = self::canonicalise_wp_cache($original);
         if (is_wp_error($updated)) return $updated;
         if ($updated === $original) return true;
+        $access = self::write_access_error($path);
+        if (is_wp_error($access)) return $access;
         $line = self::wp_cache_line();
         $permissions = fileperms($path);
         $mode = $permissions === false ? 0640 : ($permissions & 0777);
@@ -117,6 +135,22 @@ final class LEC_Config {
 
     private static function wp_cache_line(): string {
         return "define('WP_CACHE', true);";
+    }
+
+    private static function wp_cache_is_enabled_once(string $config): bool {
+        $definitions = preg_match_all("~define\s*\(\s*(['\"])WP_CACHE\\1\s*,~i", $config);
+        return $definitions === 1 && (bool) preg_match("~^[\t ]*define\s*\(\s*(['\"])WP_CACHE\\1\s*,\s*true\s*\)\s*;\s*(?:(?://|#)[^\r\n]*)?$~mi", $config);
+    }
+
+    private static function write_access_error(string $path) {
+        if ($path === '') return new WP_Error('lec_config_missing', 'wp-config.php was not found in the WordPress root or its parent directory.');
+        if (!is_readable($path)) return new WP_Error('lec_config_not_readable', 'PHP cannot read wp-config.php at ' . $path . '. Check its ownership and permissions.');
+        $permissions = fileperms($path);
+        $mode = $permissions === false ? 'unknown' : sprintf('%04o', $permissions & 0777);
+        if (!is_writable($path)) return new WP_Error('lec_config_file_not_writable', 'PHP can read wp-config.php at ' . $path . ' but cannot write to it. Current permissions: ' . $mode . '. Make the file writable by the application user, then retry.');
+        $directory = dirname($path);
+        if (!is_writable($directory)) return new WP_Error('lec_config_directory_not_writable', 'PHP can write to wp-config.php, but cannot create the verified temporary file in ' . $directory . '. The containing directory must be writable by the application user during setup.');
+        return true;
     }
 
     private static function canonicalise_wp_cache(string $config) {

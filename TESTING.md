@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.9.5 test checklist
+# Lucid Edge Cache 0.9.6 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -22,6 +22,7 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Activate with `WP_CACHE` set to `false`, with the older guarded Lucid definition, and with duplicate recognised definitions; confirm each case is replaced by exactly one canonical enabled definition without changing unrelated wp-config.php content.
 - Test an unsupported multi-line `WP_CACHE` definition and an unwritable wp-config.php; confirm the plugin leaves the original file intact and displays an administrator error rather than appending a duplicate.
 - Protect a wp-config.php file that already contains one enabled `WP_CACHE` definition and confirm activation succeeds without attempting to rewrite it.
+- With a writable wp-config.php containing one enabled `WP_CACHE` definition in a non-standard location, confirm activation removes it and inserts exactly one canonical definition above the WordPress bootstrap marker.
 - Test separately with an unreadable file, an unwritable file and an unwritable containing directory; confirm setup identifies the exact failure, current file mode where available, and resolved path.
 - Confirm the setup page access report accurately shows the resolved wp-config.php file, readability, file writability, directory writability and permissions.
 - Before onboarding, confirm only the Setup page is available and direct dashboard access redirects to Setup.

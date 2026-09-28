@@ -56,6 +56,7 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * Added plain-English explanation headers alongside cache status, bypass-reason and generation-lock codes.
 * Expanded the settings guide with clear meanings, expected actions and a complete bypass-reason reference.
 * Reworded URL inspection results to explain eligibility and provide the exact next test instead of reporting request-dependent checks without guidance.
+* Included the safe cookie name, never its value, when a response cookie prevents caching so administrators can identify the responsible component.
 
 = 0.9.2 =
 * Canonicalised WP_CACHE during activation and upgrades by replacing recognised existing definitions with one enabled definition.

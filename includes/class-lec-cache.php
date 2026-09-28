@@ -216,6 +216,36 @@ final class LEC_Cache {
         );
     }
 
+    public static function bypass_reasons(): array {
+        return array(
+            'administration' => 'This is a WordPress administration request, which may contain private controls and account information.',
+            'logged-in' => 'A user is logged in, so the page may contain personalised or private information.',
+            'ajax' => 'This is a background AJAX request rather than a normal public page.',
+            'cron' => 'This is a WordPress scheduled-task request rather than a visitor page.',
+            'request-method' => 'Only safe GET and HEAD page requests can be cached.',
+            'query-string' => 'The URL contains query parameters that may change the response.',
+            'not-found' => 'This is a 404 not-found response, so it is not stored as a normal page.',
+            'search' => 'Search results can change for every search and are not cached.',
+            'preview' => 'This is an unpublished content preview and must remain private.',
+            'feed' => 'This is a feed response rather than a normal HTML page.',
+            'trackback' => 'This is a WordPress trackback request rather than a visitor page.',
+            'robots' => 'This is the robots.txt response rather than a normal page.',
+            'embed' => 'This is an embedded-content response rather than the full public page.',
+            'password-protected' => 'This page is password protected and must not be shared from cache.',
+            'protected-path' => 'The URL matches a protected or excluded path, such as login, checkout or an account page.',
+            'protected-cookie' => 'A protected session or commerce cookie is present, so the response may be personalised.',
+            'response-status' => 'The response did not return HTTP 200 OK, so it was not stored as a successful page.',
+            'empty-response' => 'The response contained no page content to cache.',
+            'response-type' => 'The response was not an HTML page, so it was not added to the page cache.',
+            'response-cookie' => 'The response attempted to set a cookie, so it may be personalised and was not cached.',
+        );
+    }
+
+    public static function bypass_explanation(string $reason): string {
+        $reasons = self::bypass_reasons();
+        return $reasons[$reason] ?? 'The request did not meet the safety requirements for public page caching.';
+    }
+
     public static function start_capture(): void {
         if (!self::cacheable_request()) return;
         self::$capturing = true;
@@ -225,7 +255,10 @@ final class LEC_Cache {
     public static function miss_header(): void {
         if (headers_sent()) return;
         $reason = self::bypass_reason();
-        if ($reason === '') header('X-Lucid-Cache: MISS');
+        if ($reason === '') {
+            header('X-Lucid-Cache: MISS');
+            header('X-Lucid-Cache-Explanation: No usable cached page was found, so WordPress generated this response for possible caching.');
+        }
         else self::send_bypass_header($reason);
     }
 
@@ -267,6 +300,7 @@ final class LEC_Cache {
         if (headers_sent()) return;
         header('X-Lucid-Cache: BYPASS');
         header('X-Lucid-Cache-Reason: ' . sanitize_key($reason));
+        header('X-Lucid-Cache-Explanation: ' . self::bypass_explanation($reason));
     }
 
     private static function relative_cache_path(string $host, string $uri): string {
@@ -570,7 +604,8 @@ final class LEC_Cache {
             'valid' => true,
             'url' => $url,
             'status' => $excluded !== '' ? 'Always bypassed' : ($exists ? ($age <= $ttl ? 'Cached' : 'Expired') : 'Not cached'),
-            'reason' => $excluded !== '' ? 'Matches protected path rule: ' . $excluded : 'No path exclusion matched; cookies and response headers are request-dependent.',
+            'reason' => $excluded !== '' ? 'This URL always bypasses the page cache because it matches the protected path rule: ' . $excluded : 'This URL path is eligible for caching. A real request can still bypass the cache when the visitor is logged in, has a protected cookie, or the response sets a cookie or returns unsuitable content.',
+            'next_step' => $excluded !== '' ? 'Remove the site-specific exclusion only if this is genuinely a public, identical-for-everyone page. Built-in WordPress and commerce protections should remain in place.' : 'Open the exact URL without query parameters in a private browser window. The first response should be MISS and the next should be HIT. If it says BYPASS, read X-Lucid-Cache-Explanation for the specific reason.',
             'local_file' => $exists ? 'Present' : 'Absent',
             'age' => $exists ? human_time_diff((int) filemtime($file), time()) : '—',
             'queued' => $queued ? 'Yes' : 'No',

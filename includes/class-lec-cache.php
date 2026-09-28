@@ -181,6 +181,7 @@ final class LEC_Cache {
         return array(
             'wordpress_logged_in',
             'wordpress_sec',
+            'phpsessid',
             'wp-postpass',
             'comment_author',
             'woocommerce_cart_hash',

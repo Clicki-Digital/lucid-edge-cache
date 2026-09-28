@@ -45,14 +45,17 @@ if (!$fresh) {
         $GLOBALS['lec_cache_lock_handle'] = $lock;
         $GLOBALS['lec_cache_lock_path'] = $lock_path;
         header('X-Lucid-Cache-Lock: ACQUIRED');
+        header('X-Lucid-Cache-Lock-Explanation: This request will generate a fresh cached page.');
         return;
     }
     if (is_resource($lock)) @fclose($lock);
     if (is_file($file) && (filemtime($file) + $ttl + 300) >= time()) {
         header('Content-Type: text/html; charset=UTF-8');
         header('X-Lucid-Cache: STALE');
+        header('X-Lucid-Cache-Explanation: An expired cached page was served temporarily while another request refreshed it.');
         header('X-Lucid-Cache-Age: ' . max(0, time() - (int) filemtime($file)));
         header('X-Lucid-Cache-Lock: BUSY');
+        header('X-Lucid-Cache-Lock-Explanation: Another request is currently refreshing this cached page.');
         if ($method === 'GET') readfile($file);
         exit;
     }
@@ -63,17 +66,21 @@ if (!$fresh) {
         if (is_file($file) && (filemtime($file) + $ttl) >= time()) {
             header('Content-Type: text/html; charset=UTF-8');
             header('X-Lucid-Cache: HIT');
+            header('X-Lucid-Cache-Explanation: Fresh cached HTML was served without running the full WordPress page request.');
             header('X-Lucid-Cache-Lock: WAITED');
+            header('X-Lucid-Cache-Lock-Explanation: This request briefly waited for another request to finish generating the cached page.');
             if ($method === 'GET') readfile($file);
             exit;
         }
     } while (microtime(true) < $wait_until);
     header('X-Lucid-Cache-Lock: BUSY');
+    header('X-Lucid-Cache-Lock-Explanation: Another request is generating this cached page, so WordPress handled this request normally.');
     return;
 }
 
 header('Content-Type: text/html; charset=UTF-8');
 header('X-Lucid-Cache: HIT');
+header('X-Lucid-Cache-Explanation: Fresh cached HTML was served without running the full WordPress page request.');
 header('X-Lucid-Cache-Age: ' . max(0, time() - (int) filemtime($file)));
 header('Cache-Control: public, max-age=0, s-maxage=' . $ttl);
 header('Content-Length: ' . filesize($file));

@@ -35,6 +35,7 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Select Custom, test the 60-second and seven-day limits, and confirm preset selection hides the custom field again.
 - Confirm the Cache safety rules panel lists mandatory WordPress and WooCommerce bypasses separately from editable additional exclusions.
 - Confirm excluded requests return `X-Lucid-Cache: BYPASS`, a stable `X-Lucid-Cache-Reason` code and a useful plain-English `X-Lucid-Cache-Explanation` without cookie values or internal paths.
+- Trigger a `response-cookie` bypass and confirm the explanation identifies only the cookie name, never its value or attributes.
 - Confirm HIT, MISS, STALE, ACQUIRED, WAITED and BUSY responses include accurate explanation headers, and that the settings guide explains each status, lock state and bypass code.
 - Request a public page twice while logged out: first origin response is `MISS`, subsequent origin response is `HIT` with `X-Lucid-Cache-Age`.
 - Confirm logged-in, preview, POST, query-string, REST, search, feed, 404, password-protected and excluded commerce requests bypass the page cache.

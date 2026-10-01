@@ -25,6 +25,7 @@ final class LEC_Admin {
         add_action('admin_post_lec_diagnostics', array(__CLASS__, 'diagnostics'));
         add_action('admin_post_lec_verify_cdn', array(__CLASS__, 'verify_cdn'));
         add_action('admin_post_lec_onboard', array(__CLASS__, 'onboard'));
+        add_action('admin_post_lec_replace_dropin', array(__CLASS__, 'replace_dropin'));
     }
 
     public static function plugin_action_links(array $links): array {
@@ -93,6 +94,7 @@ final class LEC_Admin {
             'enabled' => empty($input['enabled']) ? 0 : 1,
             'ttl' => max(60, min(DAY_IN_SECONDS * 7, absint($input['ttl'] ?? 21600))),
             'preload_schedule' => in_array(($input['preload_schedule'] ?? 'daily'), array('daily', 'off'), true) ? $input['preload_schedule'] : 'daily',
+            'preload_order' => LEC_Cache::normalise_preload_order($input['preload_order'] ?? array()),
             'varnish_enabled' => empty($input['varnish_enabled']) ? 0 : 1,
             'varnish_url' => esc_url_raw($input['varnish_url'] ?? ''),
             'flush_object_cache' => empty($input['flush_object_cache']) ? 0 : 1,
@@ -125,8 +127,41 @@ final class LEC_Admin {
         if (!current_user_can('manage_options')) return;
         $wp_cache_error = get_option('lec_wp_cache_error');
         if ((!defined('WP_CACHE') || !WP_CACHE) && $wp_cache_error) echo '<div class="notice notice-error"><p><strong>Lucid Edge Cache:</strong> ' . esc_html((string) $wp_cache_error) . ' Automatic configuration was not possible.</p></div>';
-        if (get_option('lec_dropin_conflict')) echo '<div class="notice notice-error"><p><strong>Lucid Edge Cache:</strong> another <code>advanced-cache.php</code> drop-in exists. Remove/deactivate the previous page-cache plugin, then deactivate and reactivate Lucid Edge Cache.</p></div>';
+        $dropin = get_option('lec_dropin_conflict');
+        if ($dropin) {
+            $dropin = is_array($dropin) ? $dropin : array();
+            $owner = (string) ($dropin['owner'] ?? 'Unknown or custom cache code');
+            $size = isset($dropin['size']) ? size_format((int) $dropin['size']) : 'unknown size';
+            $replace_url = wp_nonce_url(admin_url('admin-post.php?action=lec_replace_dropin'), 'lec_replace_dropin');
+            echo '<div class="notice notice-error"><p><strong>Lucid Edge Cache could not install its page-cache drop-in.</strong></p><p>An existing <code>wp-content/advanced-cache.php</code> was found. Detected owner: <strong>' . esc_html($owner) . '</strong> (' . esc_html($size) . '). A deactivated cache plugin may have left it behind, but Lucid will not delete unknown PHP automatically.</p><p>If no other page-cache system is in use, Lucid can move the existing file to a dated safety backup and install its own copy. <a class="button button-primary" href="' . esc_url($replace_url) . '" onclick="return confirm(\'Confirm that no other page-cache plugin or custom cache system is using advanced-cache.php. The existing file will be backed up before Lucid replaces it.\');">Back up and replace file</a></p></div>';
+        }
+        $dropin_result = get_transient('lec_dropin_result_' . get_current_user_id());
+        if (is_array($dropin_result)) {
+            delete_transient('lec_dropin_result_' . get_current_user_id());
+            $class = !empty($dropin_result['success']) ? 'notice-success' : 'notice-error';
+            echo '<div class="notice ' . esc_attr($class) . ' is-dismissible"><p><strong>Lucid Edge Cache:</strong> ' . esc_html((string) ($dropin_result['message'] ?? 'The drop-in operation completed.')) . '</p></div>';
+        }
         if (is_multisite()) echo '<div class="notice notice-warning"><p><strong>Lucid Edge Cache:</strong> WordPress multisite has not yet been certified for v1. Continue only on a staging network.</p></div>';
+    }
+
+    public static function replace_dropin(): void {
+        check_admin_referer('lec_replace_dropin');
+        if (!current_user_can('manage_options')) wp_die('Forbidden');
+        $result = LEC_Cache::replace_foreign_dropin();
+        if (is_wp_error($result)) {
+            $message = $result->get_error_message();
+            $success = false;
+        } else {
+            $backup = (string) ($result['backup'] ?? '');
+            $message = $backup !== ''
+                ? 'The previous drop-in was saved as wp-content/' . $backup . ', and the Lucid drop-in is now installed.'
+                : 'The Lucid drop-in is now installed.';
+            $success = true;
+        }
+        set_transient('lec_dropin_result_' . get_current_user_id(), array('success' => $success, 'message' => $message), 5 * MINUTE_IN_SECONDS);
+        $destination = wp_get_referer();
+        wp_safe_redirect($destination ?: self::page_url(LEC_Config::is_configured() ? 'lucid-edge-cache' : 'lucid-edge-cache-setup'));
+        exit;
     }
 
     public static function purge(): void {
@@ -345,7 +380,21 @@ final class LEC_Admin {
         <p class="description">This is the maximum age of cached HTML. Publishing changes still invalidates affected pages immediately.</p>
         <script>(function(){var hidden=document.getElementById('lec_ttl_value'),custom=document.getElementById('lec_ttl_custom'),wrap=document.getElementById('lec_ttl_custom_wrap'),buttons=document.querySelectorAll('.lec-ttl-button');function select(button){buttons.forEach(function(item){item.classList.remove('button-primary');});button.classList.add('button-primary');var value=button.getAttribute('data-seconds');if(value==='custom'){wrap.style.display='block';hidden.value=custom.value;}else{wrap.style.display='none';hidden.value=value;}}buttons.forEach(function(button){button.addEventListener('click',function(){select(button);});});custom.addEventListener('input',function(){var value=Math.max(60,Math.min(604800,parseInt(custom.value||'21600',10)));hidden.value=value;});})();</script>
         </td></tr>
-        <tr><th><label for="lec_preload_schedule">Automatic preload</label></th><td><select id="lec_preload_schedule" name="lec_settings[preload_schedule]"><option value="daily" <?php selected(($s['preload_schedule'] ?? 'daily'), 'daily'); ?>>Daily — Recommended</option><option value="off" <?php selected(($s['preload_schedule'] ?? 'daily'), 'off'); ?>>Off</option></select><p class="description">Queues the home page and published content once daily. Each site receives a stable, staggered start between 4:00 and 5:30 am in the WordPress timezone.</p></td></tr>
+        <tr><th><label for="lec_preload_schedule">Automatic preload</label></th><td><select id="lec_preload_schedule" name="lec_settings[preload_schedule]"><option value="daily" <?php selected(($s['preload_schedule'] ?? 'daily'), 'daily'); ?>>Daily — Recommended</option><option value="off" <?php selected(($s['preload_schedule'] ?? 'daily'), 'off'); ?>>Off</option></select><p class="description">Queues the selected public content groups once daily. Each site receives a stable, staggered start between 4:00 and 5:30 am in the WordPress timezone.</p></td></tr>
+        <tr><th>Preload priority</th><td>
+        <p class="description" style="margin-bottom:8px">Drag the groups into the order this site should warm. Lucid no longer uses content creation order. Recently changed URLs already awaiting regeneration remain ahead of the scheduled full-site preload.</p>
+        <ul id="lec-preload-order" style="max-width:520px;margin:0">
+        <?php $preload_groups = LEC_Cache::preload_groups(); foreach (LEC_Cache::normalise_preload_order($s['preload_order'] ?? array()) as $group) : ?>
+        <li draggable="true" style="display:flex;align-items:center;gap:8px;margin:0 0 6px;padding:9px 10px;background:#fff;border:1px solid #c3c4c7;border-radius:3px;cursor:move">
+        <span aria-hidden="true" style="font-size:18px;color:#646970">↕</span><strong style="flex:1"><?php echo esc_html($preload_groups[$group]); ?></strong>
+        <button type="button" class="button button-small lec-order-up" aria-label="Move <?php echo esc_attr($preload_groups[$group]); ?> earlier">↑</button><button type="button" class="button button-small lec-order-down" aria-label="Move <?php echo esc_attr($preload_groups[$group]); ?> later">↓</button>
+        <input type="hidden" name="lec_settings[preload_order][]" value="<?php echo esc_attr($group); ?>">
+        </li>
+        <?php endforeach; ?>
+        </ul>
+        <p class="description">Products and product categories are skipped automatically when WooCommerce is not active. Blog posts are warmed newest first; pages and products follow their menu/catalogue order; populated categories are warmed from largest to smallest.</p>
+        <script>(function(){var list=document.getElementById('lec-preload-order'),dragged=null;if(!list)return;list.addEventListener('dragstart',function(e){dragged=e.target.closest('li');if(dragged)e.dataTransfer.effectAllowed='move';});list.addEventListener('dragover',function(e){e.preventDefault();var target=e.target.closest('li');if(!dragged||!target||target===dragged)return;var box=target.getBoundingClientRect();list.insertBefore(dragged,e.clientY<box.top+box.height/2?target:target.nextSibling);});list.addEventListener('dragend',function(){dragged=null;});list.addEventListener('click',function(e){var item=e.target.closest('li');if(!item)return;if(e.target.classList.contains('lec-order-up')&&item.previousElementSibling)list.insertBefore(item,item.previousElementSibling);if(e.target.classList.contains('lec-order-down')&&item.nextElementSibling)list.insertBefore(item.nextElementSibling,item);});})();</script>
+        </td></tr>
         </table><h2>Cache safety rules</h2><p>These protections are always enabled and cannot be accidentally removed.</p><table class="widefat striped"><thead><tr><th>Protection</th><th>Requests bypassed</th><th>Status</th></tr></thead><tbody>
         <?php foreach (LEC_Cache::safety_rules() as $label => $description) : ?><tr><th><?php echo esc_html($label); ?></th><td><?php echo esc_html($description); ?></td><td><strong>Always bypassed</strong></td></tr><?php endforeach; ?>
         </tbody></table><h3>Additional exclusions</h3><table class="form-table">

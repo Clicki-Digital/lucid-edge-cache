@@ -2,6 +2,8 @@
 // LUCID_EDGE_CACHE_DROPIN
 // Runs before normal WordPress plugin loading. Keep this file dependency-free.
 
+defined('LEC_DROPIN_LOADED') || define('LEC_DROPIN_LOADED', true);
+
 if (PHP_SAPI === 'cli' || defined('WP_CLI') || defined('DOING_CRON') || defined('DOING_AJAX')) return;
 $config_file = WP_CONTENT_DIR . '/cache/lucid-edge-cache/config.php';
 if (!is_readable($config_file)) return;

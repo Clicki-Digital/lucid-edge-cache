@@ -74,6 +74,7 @@ final class LEC_Cache {
             'enabled' => 1,
             'ttl' => 21600,
             'preload_schedule' => 'daily',
+            'preload_order' => array_keys(self::preload_groups()),
             'varnish_enabled' => 1,
             'varnish_url' => '',
             'flush_object_cache' => 0,
@@ -90,6 +91,7 @@ final class LEC_Cache {
 
     public static function settings(): array {
         $settings = wp_parse_args((array) get_option('lec_settings', array()), self::defaults());
+        $settings['preload_order'] = self::normalise_preload_order($settings['preload_order'] ?? array());
         $constants = array(
             'spaces_bucket' => 'LEC_SPACES_BUCKET', 'spaces_region' => 'LEC_SPACES_REGION',
             'spaces_cdn_url' => 'LEC_SPACES_CDN_URL', 'varnish_url' => 'LEC_VARNISH_URL',
@@ -126,11 +128,65 @@ final class LEC_Cache {
         $target = WP_CONTENT_DIR . '/advanced-cache.php';
         $source = LEC_DIR . 'dropins/advanced-cache.php';
         if (file_exists($target) && strpos((string) file_get_contents($target), 'LUCID_EDGE_CACHE_DROPIN') === false) {
-            update_option('lec_dropin_conflict', 1, false);
+            update_option('lec_dropin_conflict', self::foreign_dropin_report($target), false);
             return false;
         }
         delete_option('lec_dropin_conflict');
         return copy($source, $target);
+    }
+
+    private static function foreign_dropin_report(string $path): array {
+        $contents = (string) @file_get_contents($path);
+        $owners = array(
+            'Breeze' => array('BREEZE', 'breeze-cache'),
+            'WP Rocket' => array('WP_ROCKET', 'WP Rocket'),
+            'W3 Total Cache' => array('W3TC', 'W3 Total Cache'),
+            'LiteSpeed Cache' => array('LITESPEED', 'LiteSpeed Cache'),
+            'WP-Optimize' => array('WP-Optimize', 'WPO_ADVANCED_CACHE'),
+            'SiteGround Optimizer' => array('SiteGround Optimizer', 'SG_CachePress'),
+        );
+        $owner = 'Unknown or custom cache code';
+        foreach ($owners as $label => $markers) {
+            foreach ($markers as $marker) {
+                if (stripos($contents, $marker) !== false) { $owner = $label; break 2; }
+            }
+        }
+        return array(
+            'path' => $path,
+            'owner' => $owner,
+            'size' => is_file($path) ? (int) filesize($path) : 0,
+            'modified' => is_file($path) ? (int) filemtime($path) : 0,
+        );
+    }
+
+    public static function replace_foreign_dropin() {
+        $target = WP_CONTENT_DIR . '/advanced-cache.php';
+        $source = LEC_DIR . 'dropins/advanced-cache.php';
+        if (!is_readable($source)) return new WP_Error('lec_dropin_source', 'The Lucid drop-in source file is missing or unreadable. Reinstall the plugin and try again.');
+        if (!is_writable(WP_CONTENT_DIR)) return new WP_Error('lec_dropin_directory', 'PHP cannot write to the wp-content directory, so the existing drop-in cannot be backed up or replaced.');
+        if (!file_exists($target)) {
+            if (!@copy($source, $target)) return new WP_Error('lec_dropin_install', 'The Lucid drop-in could not be installed.');
+            delete_option('lec_dropin_conflict');
+            return array('backup' => '');
+        }
+        if (strpos((string) @file_get_contents($target), 'LUCID_EDGE_CACHE_DROPIN') !== false) {
+            if (!@copy($source, $target)) return new WP_Error('lec_dropin_refresh', 'The existing Lucid drop-in could not be refreshed.');
+            delete_option('lec_dropin_conflict');
+            return array('backup' => '');
+        }
+        $backup = WP_CONTENT_DIR . '/advanced-cache.php.lec-backup-' . gmdate('Ymd-His') . '-' . strtolower(wp_generate_password(4, false, false));
+        $permissions = @fileperms($target);
+        if (!@rename($target, $backup)) return new WP_Error('lec_dropin_backup', 'The existing advanced-cache.php could not be moved to a safety backup. No files were changed.');
+        if (!@copy($source, $target) || strpos((string) @file_get_contents($target), 'LUCID_EDGE_CACHE_DROPIN') === false) {
+            @unlink($target);
+            @rename($backup, $target);
+            return new WP_Error('lec_dropin_replace', 'The Lucid drop-in could not be installed, so the original file was restored.');
+        }
+        @chmod($target, $permissions === false ? 0644 : ($permissions & 0777));
+        delete_option('lec_dropin_conflict');
+        update_option('lec_dropin_backup', basename($backup), false);
+        self::log('dropin_replaced', 'success', basename($backup));
+        return array('backup' => basename($backup));
     }
 
     private static function remove_own_dropin(): void {
@@ -154,6 +210,7 @@ final class LEC_Cache {
         if (is_user_logged_in()) return 'logged-in';
         if (wp_doing_ajax()) return 'ajax';
         if (wp_doing_cron()) return 'cron';
+        if (!defined('LEC_DROPIN_LOADED')) return 'dropin-not-loaded';
         if (!in_array($_SERVER['REQUEST_METHOD'] ?? '', array('GET', 'HEAD'), true)) return 'request-method';
         if (!empty($_GET) && empty($_SERVER['HTTP_X_LUCID_CACHE_PRELOAD'])) return 'query-string';
         if (is_404()) return 'not-found';
@@ -223,6 +280,7 @@ final class LEC_Cache {
             'logged-in' => 'A user is logged in, so the page may contain personalised or private information.',
             'ajax' => 'This is a background AJAX request rather than a normal public page.',
             'cron' => 'This is a WordPress scheduled-task request rather than a visitor page.',
+            'dropin-not-loaded' => 'WordPress did not load the Lucid advanced-cache.php reader for this request. Lucid will not create a misleading cache record that cannot be served.',
             'request-method' => 'Only safe GET and HEAD page requests can be cached.',
             'query-string' => 'The URL contains query parameters that may change the response.',
             'not-found' => 'This is a 404 not-found response, so it is not stored as a normal page.',
@@ -449,17 +507,105 @@ final class LEC_Cache {
         }
     }
 
+    public static function preload_groups(): array {
+        return array(
+            'home' => 'Homepage',
+            'pages' => 'Standard pages',
+            'products' => 'WooCommerce products',
+            'product_categories' => 'Product categories',
+            'blog' => 'Blog posts',
+            'blog_taxonomies' => 'Blog categories and tags',
+            'other' => 'Other public content',
+        );
+    }
+
+    public static function normalise_preload_order($order): array {
+        $allowed = array_keys(self::preload_groups());
+        if (is_string($order)) $order = explode(',', $order);
+        $order = is_array($order) ? array_values(array_unique(array_map('sanitize_key', $order))) : array();
+        $order = array_values(array_intersect($order, $allowed));
+        return array_merge($order, array_values(array_diff($allowed, $order)));
+    }
+
     public static function queue_preload(): int {
-        $ids = get_posts(array('post_type' => 'any', 'post_status' => 'publish', 'numberposts' => -1, 'fields' => 'ids', 'orderby' => 'ID'));
-        $urls = array(home_url('/'));
+        $settings = self::settings();
+        $urls = array();
+        foreach (self::normalise_preload_order($settings['preload_order'] ?? array()) as $group) {
+            $urls = array_merge($urls, self::preload_group_urls($group));
+        }
+        $urls = array_values(array_unique(array_filter($urls)));
+        self::enqueue_urls($urls);
+        self::log('preload_queue', 'queued', count($urls) . ' URLs — ' . implode(', ', self::normalise_preload_order($settings['preload_order'] ?? array())));
+        return count($urls);
+    }
+
+    private static function preload_group_urls(string $group): array {
+        if ($group === 'home') return array(home_url('/'));
+        if ($group === 'pages') {
+            $excluded = array_filter(array((int) get_option('page_on_front'), (int) get_option('page_for_posts')));
+            return self::post_type_urls('page', array('post__not_in' => $excluded, 'orderby' => array('menu_order' => 'ASC', 'title' => 'ASC')));
+        }
+        if ($group === 'products') {
+            if (!post_type_exists('product')) return array();
+            $archive = get_post_type_archive_link('product');
+            $counts = wp_count_posts('product');
+            $published = isset($counts->publish) ? (int) $counts->publish : 0;
+            $archives = $archive ? self::paginated_urls($archive, $published, max(1, (int) get_option('posts_per_page', 10))) : array();
+            return array_merge($archives, self::post_type_urls('product', array('orderby' => array('menu_order' => 'ASC', 'title' => 'ASC'))));
+        }
+        if ($group === 'product_categories') return taxonomy_exists('product_cat') ? self::taxonomy_urls('product_cat') : array();
+        if ($group === 'blog') {
+            $posts_page = (int) get_option('page_for_posts');
+            $index = $posts_page ? get_permalink($posts_page) : home_url('/');
+            $counts = wp_count_posts('post');
+            $published = isset($counts->publish) ? (int) $counts->publish : 0;
+            $archives = $index ? self::paginated_urls($index, $published, max(1, (int) get_option('posts_per_page', 10))) : array();
+            return array_merge($archives, self::post_type_urls('post', array('orderby' => 'date', 'order' => 'DESC')));
+        }
+        if ($group === 'blog_taxonomies') return array_merge(self::taxonomy_urls('category'), self::taxonomy_urls('post_tag'));
+        if ($group === 'other') {
+            $urls = array();
+            $types = get_post_types(array('public' => true), 'names');
+            foreach (array_diff($types, array('page', 'post', 'product', 'attachment')) as $type) {
+                $archive = get_post_type_archive_link($type);
+                $counts = wp_count_posts($type);
+                $published = isset($counts->publish) ? (int) $counts->publish : 0;
+                if ($archive) $urls = array_merge($urls, self::paginated_urls($archive, $published, max(1, (int) get_option('posts_per_page', 10))));
+                $urls = array_merge($urls, self::post_type_urls($type, array('orderby' => 'title', 'order' => 'ASC')));
+            }
+            return $urls;
+        }
+        return array();
+    }
+
+    private static function post_type_urls(string $post_type, array $extra = array()): array {
+        if (!post_type_exists($post_type)) return array();
+        $ids = get_posts(array_merge(array(
+            'post_type' => $post_type,
+            'post_status' => 'publish',
+            'numberposts' => -1,
+            'fields' => 'ids',
+            'suppress_filters' => false,
+        ), $extra));
+        $urls = array();
         foreach ($ids as $id) {
             $url = get_permalink($id);
             if ($url) $urls[] = $url;
         }
-        $urls = array_values(array_unique(array_filter($urls)));
-        self::enqueue_urls($urls);
-        self::log('preload_queue', 'queued', count($urls) . ' URLs');
-        return count($urls);
+        return $urls;
+    }
+
+    private static function taxonomy_urls(string $taxonomy): array {
+        if (!taxonomy_exists($taxonomy)) return array();
+        $terms = get_terms(array('taxonomy' => $taxonomy, 'hide_empty' => true, 'orderby' => 'count', 'order' => 'DESC'));
+        if (is_wp_error($terms)) return array();
+        $per_page = max(1, (int) get_option('posts_per_page', 10));
+        $urls = array();
+        foreach ($terms as $term) {
+            $link = get_term_link($term);
+            if (!is_wp_error($link)) $urls = array_merge($urls, self::paginated_urls($link, (int) $term->count, $per_page));
+        }
+        return $urls;
     }
 
     public static function daily_preload(): void {
@@ -644,7 +790,7 @@ final class LEC_Cache {
             'wordpress_version' => get_bloginfo('version'),
             'php_version' => PHP_VERSION,
             'health' => self::health(),
-            'policy' => array('enabled' => !empty($settings['enabled']), 'ttl' => (int) $settings['ttl'], 'preload_schedule' => (string) ($settings['preload_schedule'] ?? 'daily'), 'additional_paths' => self::setting_lines((string) $settings['exclude_paths']), 'additional_cookies' => self::setting_lines((string) $settings['exclude_cookies'])),
+            'policy' => array('enabled' => !empty($settings['enabled']), 'ttl' => (int) $settings['ttl'], 'preload_schedule' => (string) ($settings['preload_schedule'] ?? 'daily'), 'preload_order' => self::normalise_preload_order($settings['preload_order'] ?? array()), 'additional_paths' => self::setting_lines((string) $settings['exclude_paths']), 'additional_cookies' => self::setting_lines((string) $settings['exclude_cookies'])),
             'infrastructure' => array('varnish_enabled' => !empty($settings['varnish_enabled']), 'object_cache' => wp_using_ext_object_cache(), 'spaces_enabled' => !empty($settings['spaces_enabled']), 'spaces_region' => (string) $settings['spaces_region'], 'spaces_bucket' => (string) $settings['spaces_bucket'], 'namespace' => self::site_host() . '/'),
             'recent_activity' => self::activity(),
         );
@@ -673,6 +819,7 @@ final class LEC_Cache {
             'Update source' => class_exists('LEC_Updater') ? 'GitHub — ' . LEC_Updater::repository() : 'Unavailable',
             'Page cache' => !empty($settings['enabled']) ? 'Enabled' : 'Disabled',
             'Drop-in' => self::dropin_ok() ? 'Installed' : 'Unavailable',
+            'Drop-in execution' => defined('LEC_DROPIN_LOADED') ? 'Loaded for this request' : 'Not loaded — check the conflict notice and WP_CACHE',
             'Cache directory' => is_dir(LEC_CACHE_DIR . '/pages') && is_writable(LEC_CACHE_DIR . '/pages') ? 'Writable' : 'Not writable',
             'Cached pages' => (string) $stats['count'],
             'Varnish' => empty($settings['varnish_enabled']) ? 'Disabled' : 'Enabled',
@@ -682,6 +829,10 @@ final class LEC_Cache {
             'Pending regeneration' => (string) count($queue),
             'Pending Spaces retries' => (string) count($retries),
             'Automatic preload' => $automatic_preload ? 'Daily — staggered between 04:00 and 05:30' : 'Disabled',
+            'Preload priority' => implode(' → ', array_map(static function (string $group): string {
+                $labels = self::preload_groups();
+                return $labels[$group] ?? $group;
+            }, self::normalise_preload_order($settings['preload_order'] ?? array()))),
             'Next automatic preload' => $automatic_preload && $next_preload ? wp_date('Y-m-d H:i:s', (int) $next_preload) : 'Not scheduled',
             'Last automatic preload' => empty($last_preload['time']) ? 'Not run' : wp_date('Y-m-d H:i:s', (int) $last_preload['time']) . ' — ' . absint($last_preload['count'] ?? 0) . ' URLs queued',
             'Next expired-file cleanup' => wp_next_scheduled('lec_cache_cleanup') ? wp_date('Y-m-d H:i:s', (int) wp_next_scheduled('lec_cache_cleanup')) : 'Not scheduled',
@@ -694,6 +845,7 @@ final class LEC_Cache {
         $results = array(
             'runtime_config' => self::write_runtime_config($settings),
             'dropin' => self::dropin_ok(),
+            'dropin_loaded' => defined('LEC_DROPIN_LOADED'),
             'cache_directory' => is_dir(LEC_CACHE_DIR . '/pages') && is_writable(LEC_CACHE_DIR . '/pages'),
             'varnish' => empty($settings['varnish_enabled']) ? null : self::test_varnish(),
             'spaces' => empty($settings['spaces_enabled']) ? null : LEC_Spaces::test($settings),
@@ -751,7 +903,7 @@ final class LEC_Cache {
     private static function paginated_urls(string $base, int $items, int $per_page): array {
         if ($base === '') return array();
         $urls = array($base);
-        $pages = min(250, max(1, (int) ceil($items / max(1, $per_page))) + 1);
+        $pages = min(250, max(1, (int) ceil($items / max(1, $per_page))));
         for ($page = 2; $page <= $pages; $page++) $urls[] = trailingslashit($base) . user_trailingslashit('page/' . $page, 'paged');
         return $urls;
     }

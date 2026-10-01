@@ -3,7 +3,7 @@ Contributors: lucidsolutions
 Tags: cache, varnish, digitalocean, spaces, performance
 Requires at least: 6.4
 Requires PHP: 8.0
-Stable tag: 0.9.6
+Stable tag: 0.10.0
 License: GPLv2 or later
 
 Safe anonymous full-page caching with Varnish purging and optional DigitalOcean Spaces HTML replication.
@@ -47,11 +47,20 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * DigitalOcean replication is secondary; it does not redirect the public website to Spaces.
 * Query-string requests, logged-in sessions, previews, search, feeds, REST, admin and common commerce/session cookies bypass cache.
 * Preloading uses WP-Cron in batches of five. Configure a real cron runner for reliable production operation.
-* Automatic preloading is enabled by default and queues published content once daily at a stable per-site time between 4:00 and 5:30 am in the WordPress timezone. It can be disabled under Page cache.
+* Automatic preloading is enabled by default and queues public content once daily at a stable per-site time between 4:00 and 5:30 am in the WordPress timezone. Administrators can drag homepage, page, product, product-category, blog and other-content groups into the priority required for each site.
 * Varnish PURGE behaviour varies by host. Confirm Cloudways accepts PURGE on the configured URL and inspect response headers during testing.
 * Do not enable alongside another plugin that owns wp-content/advanced-cache.php.
 
 == Changelog ==
+= 0.10.0 =
+* Replaced database creation-ID preload order with an administrator-configurable, draggable priority order.
+* Added separate preload groups for the homepage, standard pages, WooCommerce products, product categories, blog posts, blog categories and tags, and other public content.
+* Added product, post-type and taxonomy archives to full-site preloading, including bounded pagination where applicable.
+* Ordered pages and products by their menu or catalogue order, blog posts newest first, and populated categories largest first.
+* Added a recoverable drop-in conflict tool that identifies common owners, backs up an existing unknown advanced-cache.php and installs Lucid only after administrator confirmation.
+* Added an early-reader execution marker so Lucid can distinguish an installed file from a drop-in that WordPress actually loaded.
+* Stopped creating or repeatedly overwriting cache records when the Lucid drop-in reader is unavailable, and report the problem as a plain-English bypass instead of a misleading cache miss.
+
 = 0.9.6 =
 * Normalised WP_CACHE on writable installations by removing recognised existing definitions and reinserting one canonical enabled definition at the standard configuration location.
 * Continued accepting a protected read-only wp-config.php when it already contains exactly one enabled WP_CACHE definition.

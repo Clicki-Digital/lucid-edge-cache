@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.9.6 test checklist
+# Lucid Edge Cache 0.10.0 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -65,6 +65,8 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Trigger several simultaneous requests for an expired URL and confirm one response acquires the generation lock while others wait or receive a short-lived stale response.
 - Confirm daily cleanup removes expired HTML and abandoned lock files while leaving fresh HTML intact.
 - Confirm Daily automatic preload schedules one `lec_daily_preload` event between 04:00 and 05:30 in the WordPress timezone, records its last run, queues published URLs in batches of five, and schedules the following day.
+- Arrange the preload groups into at least two different orders and confirm the queue follows the saved group priority rather than post creation ID. Confirm pages use menu order, products use catalogue order, blog posts run newest first and populated taxonomy archives run largest first.
+- Confirm product and product-category groups safely add no URLs when WooCommerce is inactive, and confirm duplicate homepage or archive URLs appear only once.
 - Change Automatic preload to Off and confirm the daily event is removed without affecting manual preloading.
 - Disable page caching and confirm automatic preloading is unscheduled; re-enable it and confirm the event returns.
 - Inspect cached, expired, absent and protected URLs and confirm the inspector does not request or modify them.
@@ -87,6 +89,8 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 
 - Deactivate and confirm the Lucid drop-in and scheduled jobs are removed while configuration remains.
 - Reactivate and confirm runtime configuration and the drop-in are restored.
+- Place a non-Lucid `advanced-cache.php` in `wp-content`, confirm Lucid reports the detected owner without deleting it, then use Back up and replace file. Confirm the previous file receives a dated `.lec-backup-*` name, Lucid installs its own verified drop-in, and a failed copy restores the original.
+- With Lucid's drop-in missing or prevented from loading, request an anonymous public page twice and confirm both responses explain `dropin-not-loaded`, no new cache record is written, and System health distinguishes the installed file from execution. Restore the drop-in and confirm the first request is MISS and the next is HIT without changing the cached file time on the HIT.
 - Test PHP 8.1, 8.2, 8.3 and 8.4 with the supported WordPress versions.
 - Test Cloudways Varnish and Redis, Apache/Nginx behaviour, Gutenberg, the site's page builder and WooCommerce exclusions where applicable.
 - Treat multisite and subdirectory WordPress installations as unsupported until separately certified.

@@ -3,7 +3,7 @@ Contributors: lucidsolutions
 Tags: cache, varnish, digitalocean, spaces, performance
 Requires at least: 6.4
 Requires PHP: 8.0
-Stable tag: 0.10.0
+Stable tag: 0.10.1
 License: GPLv2 or later
 
 Safe anonymous full-page caching with Varnish purging and optional DigitalOcean Spaces HTML replication.
@@ -52,6 +52,13 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * Do not enable alongside another plugin that owns wp-content/advanced-cache.php.
 
 == Changelog ==
+= 0.10.1 =
+* Recognised complete existing LEC_* wp-config.php configuration even when it was added manually or does not use Lucid's managed BEGIN/END markers.
+* Preserved infrastructure locking through LEC_LOCK_SETTINGS and continued using managed markers only to identify blocks Lucid owns and may replace.
+* Explained which required constant is missing when only part of an existing configuration is detected, without displaying stored secrets.
+* Kept the top-level Cache route permanently registered so saving or manually changing wp-config.php cannot strand administrators on a disappearing page with a permission error.
+* Removed the fragile in-page redirect from locked Setup to Settings; the stable Cache route now renders the correct screen directly.
+
 = 0.10.0 =
 * Replaced database creation-ID preload order with an administrator-configurable, draggable priority order.
 * Added separate preload groups for the homepage, standard pages, WooCommerce products, product categories, blog posts, blog categories and tags, and other public content.

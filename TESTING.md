@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.10.0 test checklist
+# Lucid Edge Cache 0.10.1 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -82,6 +82,10 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Use Verify object and confirm a successful Spaces object reports its HTTP status and content type without rendering the HTML; test a missing object and confirm the failure is shown only to the current administrator.
 
 ## Lifecycle and compatibility
+
+- Define all required `LEC_*` constants manually without Lucid's BEGIN/END markers and confirm the normal Cache settings page opens without requesting setup again. Define `LEC_LOCK_SETTINGS` as true and confirm infrastructure fields remain locked.
+- Remove one required constant from a manual configuration and confirm Setup names only the missing constant without displaying any existing secret value.
+- Open the stable top-level Cache URL before and after automatic setup, a failed setup and a manual wp-config.php correction. Confirm the same route displays Setup or Settings as appropriate and never shows WordPress's "not allowed to access this page" response.
 
 - Confirm administrators see a top-level Cache menu with Settings and Cached Pages, while users without `manage_options` do not.
 - Confirm the Cache toolbar dropdown offers Clear cache, Clear and preload cache, and Settings only to administrators, and rejects missing or invalid nonces.

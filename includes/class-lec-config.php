@@ -25,11 +25,15 @@ final class LEC_Config {
     }
 
     public static function is_configured(): bool {
-        if (!self::is_managed()) return false;
+        return self::missing_constants() === array();
+    }
+
+    public static function missing_constants(): array {
+        $missing = array();
         foreach (array('LEC_SPACES_KEY', 'LEC_SPACES_SECRET', 'LEC_SPACES_BUCKET', 'LEC_SPACES_REGION', 'LEC_SPACES_CDN_URL') as $constant) {
-            if (!defined($constant) || trim((string) constant($constant)) === '') return false;
+            if (!defined($constant) || trim((string) constant($constant)) === '') $missing[] = $constant;
         }
-        return true;
+        return $missing;
     }
 
     public static function access_report(): array {

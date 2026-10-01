@@ -29,8 +29,7 @@ final class LEC_Admin {
     }
 
     public static function plugin_action_links(array $links): array {
-        $page = LEC_Config::is_configured() ? 'lucid-edge-cache' : 'lucid-edge-cache-setup';
-        $settings_link = '<a href="' . esc_url(self::page_url($page)) . '">' . esc_html__('Settings', 'lucid-edge-cache') . '</a>';
+        $settings_link = '<a href="' . esc_url(self::page_url()) . '">' . esc_html__('Settings', 'lucid-edge-cache') . '</a>';
         array_unshift($links, $settings_link);
         return $links;
     }
@@ -46,35 +45,33 @@ final class LEC_Admin {
     }
 
     public static function maybe_redirect_setup(): void {
-        if (isset($_GET['page']) && $_GET['page'] === 'lucid-edge-cache' && !LEC_Config::is_configured()) {
-            wp_safe_redirect(self::page_url('lucid-edge-cache-setup')); exit;
-        }
         if (isset($_GET['page']) && $_GET['page'] === 'lucid-edge-cache-setup' && LEC_Config::is_locked()) {
             wp_safe_redirect(add_query_arg('lec_notice', 'already_configured', self::page_url())); exit;
         }
         if (!get_transient('lec_activation_redirect')) return;
         delete_transient('lec_activation_redirect');
         if (!current_user_can('manage_options') || wp_doing_ajax() || isset($_GET['activate-multi'])) return;
-        wp_safe_redirect(self::page_url('lucid-edge-cache-setup')); exit;
+        wp_safe_redirect(self::page_url()); exit;
     }
 
     public static function menu(): void {
-        if (!LEC_Config::is_configured()) {
-            add_menu_page('Lucid Edge Cache Setup', 'Cache', 'manage_options', 'lucid-edge-cache-setup', array(__CLASS__, 'setup_page'), 'dashicons-performance', 75);
-            return;
-        }
-        add_menu_page('Lucid Edge Cache', 'Cache', 'manage_options', 'lucid-edge-cache', array(__CLASS__, 'page'), 'dashicons-performance', 75);
-        add_submenu_page('lucid-edge-cache', 'Lucid Edge Cache Settings', 'Settings', 'manage_options', 'lucid-edge-cache', array(__CLASS__, 'page'));
-        add_submenu_page('lucid-edge-cache', 'Lucid Edge Cache Records', 'Cached Pages', 'manage_options', 'lucid-edge-cache-records', array(__CLASS__, 'records_page'));
+        add_menu_page('Lucid Edge Cache', 'Cache', 'manage_options', 'lucid-edge-cache', array(__CLASS__, 'route_page'), 'dashicons-performance', 75);
+        add_submenu_page('lucid-edge-cache', 'Lucid Edge Cache', LEC_Config::is_configured() ? 'Settings' : 'Setup', 'manage_options', 'lucid-edge-cache', array(__CLASS__, 'route_page'));
+        if (LEC_Config::is_configured()) add_submenu_page('lucid-edge-cache', 'Lucid Edge Cache Records', 'Cached Pages', 'manage_options', 'lucid-edge-cache-records', array(__CLASS__, 'records_page'));
         if (!LEC_Config::is_locked()) {
             add_submenu_page('lucid-edge-cache', 'Lucid Edge Cache Setup', 'Setup', 'manage_options', 'lucid-edge-cache-setup', array(__CLASS__, 'setup_page'));
         }
     }
 
+    public static function route_page(): void {
+        if (LEC_Config::is_configured()) self::page();
+        else self::setup_page();
+    }
+
     public static function admin_bar_menu($admin_bar): void {
         if (!current_user_can('manage_options')) return;
         $configured = LEC_Config::is_configured();
-        $destination = $configured ? self::page_url() : self::page_url('lucid-edge-cache-setup');
+        $destination = self::page_url();
         $admin_bar->add_node(array('id' => 'lucid-edge-cache', 'title' => 'Cache', 'href' => $destination));
         if ($configured) {
             $admin_bar->add_node(array('parent' => 'lucid-edge-cache', 'id' => 'lucid-edge-cache-clear', 'title' => 'Clear cache', 'href' => wp_nonce_url(admin_url('admin-post.php?action=lec_purge'), 'lec_purge')));
@@ -490,13 +487,16 @@ final class LEC_Admin {
 
     public static function setup_page(): void {
         if (!current_user_can('manage_options')) return;
+        if (LEC_Config::is_locked()) { self::page(); return; }
         $error = get_transient('lec_setup_error_' . get_current_user_id());
         delete_transient('lec_setup_error_' . get_current_user_id());
         if ($error) echo '<div class="notice notice-error"><p>' . esc_html($error) . '</p></div>';
         ?>
         <div class="wrap"><h1>Lucid Edge Cache Setup</h1><p>This one-time setup tests DigitalOcean Spaces, then writes the credentials directly to <code>wp-config.php</code>. Secrets are not stored in WordPress options, transients or activity logs.</p>
         <p><strong>Canonical hostname namespace:</strong> <code><?php echo esc_html(LEC_Cache::site_host()); ?>/</code></p>
-        <?php if (LEC_Config::is_locked()) : wp_safe_redirect(self::page_url()); exit; endif; ?>
+        <?php $missing_constants = LEC_Config::missing_constants(); if ($missing_constants && count($missing_constants) < 5) : ?>
+        <div class="notice notice-warning inline"><p><strong>Existing wp-config.php settings were detected.</strong> Setup is shown only because the following required setting<?php echo count($missing_constants) === 1 ? ' is' : 's are'; ?> missing or empty: <code><?php echo esc_html(implode(', ', $missing_constants)); ?></code>. Existing secret values are not displayed or copied into this form.</p></div>
+        <?php endif; ?>
         <?php $access = LEC_Config::access_report(); ?>
         <h2>Configuration file access</h2>
         <p>Lucid uses a temporary file in the same directory and replaces <code>wp-config.php</code> only after verification. Both the file and directory must be writable during automatic setup.</p>

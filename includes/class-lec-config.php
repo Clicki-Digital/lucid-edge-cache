@@ -97,13 +97,10 @@ final class LEC_Config {
             $updated = substr($original, 0, $position) . $block . "\n\n" . substr($original, $position);
         }
         if (!is_string($updated)) return new WP_Error('lec_config_unchanged', 'No configuration change was produced.');
-        $updated = self::canonicalise_wp_cache($updated);
-        if (is_wp_error($updated)) return $updated;
         if ($updated === $original) return new WP_Error('lec_config_unchanged', 'No configuration change was produced.');
         return self::commit_contents($path, $updated, $original, static function (string $check) use ($block, $updated): bool {
             return hash_equals($updated, $check)
                 && strpos($check, $block) !== false
-                && strpos($check, self::wp_cache_line()) !== false
                 && strpos($check, '<?php') !== false
                 && strpos($check, 'wp-settings.php') !== false;
         }, 'The Lucid configuration could not be committed.');

@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.10.4 test checklist
+# Lucid Edge Cache 0.10.5 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -19,6 +19,7 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 ## Upgrade and onboarding
 
 - Activate with no `WP_CACHE` definition and confirm the plugin inserts exactly one `define('WP_CACHE', true);` above the WordPress bootstrap marker.
+- After WP_CACHE is already enabled, complete onboarding and confirm the credentials write changes only the Lucid-managed block and does not reprocess the WP_CACHE definition.
 - Repeat onboarding with a valid wp-config.php that starts with a UTF-8 byte-order mark or leading whitespace and confirm temporary-file validation succeeds and the resulting file matches the intended content byte-for-byte.
 - Activate with `WP_CACHE` set to `false`, with the older guarded Lucid definition, and with duplicate recognised definitions; confirm each case is replaced by exactly one canonical enabled definition without changing unrelated wp-config.php content.
 - Test an unsupported multi-line `WP_CACHE` definition and an unwritable wp-config.php; confirm the plugin leaves the original file intact and displays an administrator error rather than appending a duplicate.

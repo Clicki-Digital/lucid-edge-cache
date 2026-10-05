@@ -499,7 +499,7 @@ final class LEC_Admin {
         <?php endif; ?>
         <?php $access = LEC_Config::access_report(); ?>
         <h2>Configuration file access</h2>
-        <p>Lucid uses a temporary file in the same directory and replaces <code>wp-config.php</code> only after verification. Both the file and directory must be writable during automatic setup.</p>
+        <p>Lucid prefers a verified temporary file and atomic replacement. When the directory is protected but <code>wp-config.php</code> itself is writable, it uses a locked direct update, verifies the result and restores the original content if verification fails.</p>
         <table class="widefat striped" style="max-width:900px"><tbody><?php foreach ($access as $label => $value) : ?><tr><th><?php echo esc_html($label); ?></th><td><code><?php echo esc_html((string) $value); ?></code></td></tr><?php endforeach; ?></tbody></table>
         <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>" autocomplete="off"><input type="hidden" name="action" value="lec_onboard"><?php wp_nonce_field('lec_onboard'); ?>
         <table class="form-table"><tr><th><label for="spaces_key">Spaces Access Key ID</label></th><td><input class="regular-text" id="spaces_key" name="spaces_key" required autocomplete="off"></td></tr>

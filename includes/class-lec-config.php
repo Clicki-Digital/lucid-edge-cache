@@ -40,12 +40,15 @@ final class LEC_Config {
         $path = self::path();
         $directory = $path !== '' ? dirname($path) : '';
         $permissions = $path !== '' ? fileperms($path) : false;
+        $file_writable = $path !== '' && is_writable($path);
+        $directory_writable = $directory !== '' && is_writable($directory);
         return array(
             'Resolved file' => $path !== '' ? $path : 'Not found in the WordPress root or its parent directory',
             'Readable by PHP' => $path !== '' && is_readable($path) ? 'Yes' : 'No',
-            'Writable by PHP' => $path !== '' && is_writable($path) ? 'Yes' : 'No',
-            'Directory writable' => $directory !== '' && is_writable($directory) ? 'Yes' : 'No',
+            'Writable by PHP' => $file_writable ? 'Yes' : 'No',
+            'Directory writable' => $directory_writable ? 'Yes' : 'No',
             'File permissions' => $permissions === false ? 'Unavailable' : sprintf('%04o', $permissions & 0777),
+            'Automatic write method' => $directory_writable ? 'Atomic verified replacement' : ($file_writable ? 'Locked direct update with verification' : 'Unavailable'),
         );
     }
 
@@ -95,19 +98,12 @@ final class LEC_Config {
         $updated = self::canonicalise_wp_cache($updated);
         if (is_wp_error($updated)) return $updated;
         if ($updated === $original) return new WP_Error('lec_config_unchanged', 'No configuration change was produced.');
-        $permissions = fileperms($path);
-        $mode = $permissions === false ? 0640 : ($permissions & 0777);
-        $tmp = dirname($path) . '/.' . basename($path) . '.lec-' . wp_generate_password(10, false, false);
-        if (file_put_contents($tmp, $updated, LOCK_EX) === false) return new WP_Error('lec_config_temp', 'The temporary configuration file could not be written.');
-        @chmod($tmp, $mode);
-        $check = (string) file_get_contents($tmp);
-        if (strpos($check, $block) === false || strpos($check, self::wp_cache_line()) === false || strpos($check, '<?php') !== 0 || !@rename($tmp, $path)) {
-            @unlink($tmp);
-            return new WP_Error('lec_config_commit', 'The configuration could not be committed; the original was left in place.');
-        }
-        clearstatcache(true, $path);
-        if (strpos((string) file_get_contents($path), self::START) === false) return new WP_Error('lec_config_verify', 'Configuration verification failed.');
-        return true;
+        return self::commit_contents($path, $updated, $original, static function (string $check) use ($block): bool {
+            return strpos($check, $block) !== false
+                && strpos($check, self::wp_cache_line()) !== false
+                && strpos($check, '<?php') === 0
+                && strpos($check, 'wp-settings.php') !== false;
+        }, 'The Lucid configuration could not be committed.');
     }
 
     public static function ensure_wp_cache() {
@@ -117,25 +113,17 @@ final class LEC_Config {
         $original = file_get_contents($path);
         if ($original === false || strpos($original, 'wp-settings.php') === false) return new WP_Error('lec_config_invalid', 'The WordPress bootstrap marker was not found.');
         $already_enabled = self::wp_cache_is_enabled_once($original);
-        if ($already_enabled && (!is_writable($path) || !is_writable(dirname($path)))) return true;
+        if ($already_enabled && !is_writable($path) && !is_writable(dirname($path))) return true;
         $updated = self::canonicalise_wp_cache($original);
         if (is_wp_error($updated)) return $updated;
         if ($updated === $original) return true;
         $access = self::write_access_error($path);
         if (is_wp_error($access)) return $access;
-        $line = self::wp_cache_line();
-        $permissions = fileperms($path);
-        $mode = $permissions === false ? 0640 : ($permissions & 0777);
-        $tmp = dirname($path) . '/.' . basename($path) . '.lec-cache-' . wp_generate_password(10, false, false);
-        if (file_put_contents($tmp, $updated, LOCK_EX) === false) return new WP_Error('lec_config_temp', 'The temporary configuration file could not be written.');
-        @chmod($tmp, $mode);
-        $check = (string) file_get_contents($tmp);
-        if (strpos($check, $line) === false || strpos($check, '<?php') !== 0 || !@rename($tmp, $path)) {
-            @unlink($tmp);
-            return new WP_Error('lec_config_commit', 'WP_CACHE could not be enabled; the original file was left in place.');
-        }
-        clearstatcache(true, $path);
-        return true;
+        return self::commit_contents($path, $updated, $original, static function (string $check): bool {
+            return strpos($check, self::wp_cache_line()) !== false
+                && strpos($check, '<?php') === 0
+                && strpos($check, 'wp-settings.php') !== false;
+        }, 'WP_CACHE could not be enabled.');
     }
 
     private static function wp_cache_line(): string {
@@ -152,10 +140,62 @@ final class LEC_Config {
         if (!is_readable($path)) return new WP_Error('lec_config_not_readable', 'PHP cannot read wp-config.php at ' . $path . '. Check its ownership and permissions.');
         $permissions = fileperms($path);
         $mode = $permissions === false ? 'unknown' : sprintf('%04o', $permissions & 0777);
-        if (!is_writable($path)) return new WP_Error('lec_config_file_not_writable', 'PHP can read wp-config.php at ' . $path . ' but cannot write to it. Current permissions: ' . $mode . '. Make the file writable by the application user, then retry.');
         $directory = dirname($path);
-        if (!is_writable($directory)) return new WP_Error('lec_config_directory_not_writable', 'PHP can write to wp-config.php, but cannot create the verified temporary file in ' . $directory . '. The containing directory must be writable by the application user during setup.');
+        if (!is_writable($path) && !is_writable($directory)) return new WP_Error('lec_config_not_writable', 'PHP can read wp-config.php at ' . $path . ' but can neither update the file nor replace it through the containing directory. Current file permissions: ' . $mode . '. Make either the file writable by the application user or allow temporary-file creation in ' . $directory . ', then retry.');
         return true;
+    }
+
+    private static function commit_contents(string $path, string $updated, string $original, callable $validator, string $failure_message) {
+        $directory = dirname($path);
+        if (is_writable($directory)) {
+            $permissions = fileperms($path);
+            $mode = $permissions === false ? 0640 : ($permissions & 0777);
+            $tmp = $directory . '/.' . basename($path) . '.lec-' . wp_generate_password(10, false, false);
+            if (file_put_contents($tmp, $updated, LOCK_EX) === false) return new WP_Error('lec_config_temp', 'The verified temporary configuration file could not be written.');
+            @chmod($tmp, $mode);
+            $check = (string) file_get_contents($tmp);
+            if (!$validator($check) || !@rename($tmp, $path)) {
+                @unlink($tmp);
+                return new WP_Error('lec_config_commit', $failure_message . ' The original file was left in place.');
+            }
+            clearstatcache(true, $path);
+            if (!$validator((string) file_get_contents($path))) return new WP_Error('lec_config_verify', $failure_message . ' Verification failed after the atomic replacement.');
+            return true;
+        }
+
+        if (!is_writable($path)) return new WP_Error('lec_config_file_not_writable', $failure_message . ' PHP cannot write to wp-config.php and its containing directory does not permit atomic replacement.');
+        if (!self::locked_write($path, $updated)) {
+            $restored = self::locked_write($path, $original);
+            clearstatcache(true, $path);
+            if ($restored && (string) file_get_contents($path) === $original) return new WP_Error('lec_config_direct_write', $failure_message . ' The locked direct update was incomplete, so the original wp-config.php content was restored.');
+            return new WP_Error('lec_config_restore_failed', $failure_message . ' The direct update failed and the original content could not be confirmed as restored. Restore wp-config.php from your hosting backup before continuing.');
+        }
+        clearstatcache(true, $path);
+        if ($validator((string) file_get_contents($path))) return true;
+
+        $restored = self::locked_write($path, $original);
+        clearstatcache(true, $path);
+        if ($restored && (string) file_get_contents($path) === $original) return new WP_Error('lec_config_direct_verify', $failure_message . ' Verification failed, so the original wp-config.php content was restored.');
+        return new WP_Error('lec_config_restore_failed', $failure_message . ' Verification failed and the original content could not be confirmed as restored. Restore wp-config.php from your hosting backup before continuing.');
+    }
+
+    private static function locked_write(string $path, string $contents): bool {
+        $handle = @fopen($path, 'c+b');
+        if (!is_resource($handle)) return false;
+        if (!@flock($handle, LOCK_EX)) { @fclose($handle); return false; }
+        $success = @ftruncate($handle, 0) && @rewind($handle);
+        $length = strlen($contents);
+        $offset = 0;
+        while ($success && $offset < $length) {
+            $written = @fwrite($handle, substr($contents, $offset));
+            if ($written === false || $written === 0) { $success = false; break; }
+            $offset += $written;
+        }
+        if ($success) $success = @fflush($handle);
+        if ($success && function_exists('fsync')) @fsync($handle);
+        @flock($handle, LOCK_UN);
+        @fclose($handle);
+        return $success && $offset === $length;
     }
 
     private static function canonicalise_wp_cache(string $config) {

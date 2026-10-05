@@ -1,4 +1,4 @@
-# Lucid Edge Cache 0.10.2 test checklist
+# Lucid Edge Cache 0.10.3 test checklist
 
 Use a staging site and keep a backup of `wp-config.php`. Test in a private browser window as well as while signed in.
 
@@ -86,6 +86,7 @@ Use a staging site and keep a backup of `wp-config.php`. Test in a private brows
 - Make wp-config.php writable while its containing directory is not writable. Confirm Setup reports "Locked direct update with verification", writes the complete configuration, retains the original permissions and opens the stable Cache settings route.
 - Make the containing directory writable while wp-config.php itself is read-only. Confirm Setup uses atomic verified replacement successfully.
 - Force direct-write verification to fail in an isolated test and confirm the byte-for-byte original wp-config.php content is restored and the error explains the restoration.
+- Allow temporary-file creation but refuse rename over the existing wp-config.php. Confirm Lucid removes the temporary file, falls back to the locked direct update, verifies the result and completes setup without requesting manual configuration.
 
 - Define all required `LEC_*` constants manually without Lucid's BEGIN/END markers and confirm the normal Cache settings page opens without requesting setup again. Define `LEC_LOCK_SETTINGS` as true and confirm infrastructure fields remain locked.
 - Remove one required constant from a manual configuration and confirm Setup names only the missing constant without displaying any existing secret value.

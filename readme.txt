@@ -3,7 +3,7 @@ Contributors: lucidsolutions
 Tags: cache, varnish, digitalocean, spaces, performance
 Requires at least: 6.4
 Requires PHP: 8.0
-Stable tag: 0.10.2
+Stable tag: 0.10.3
 License: GPLv2 or later
 
 Safe anonymous full-page caching with Varnish purging and optional DigitalOcean Spaces HTML replication.
@@ -52,6 +52,12 @@ Generated HTML is replicated with public-read access. Use a restricted Spaces ke
 * Do not enable alongside another plugin that owns wp-content/advanced-cache.php.
 
 == Changelog ==
+= 0.10.3 =
+* Automatically falls back to a locked direct wp-config.php update when a host reports the directory as writable but refuses temporary-file creation or atomic rename over the existing file.
+* Split configuration failures into specific temporary-write, temporary-validation, rename, direct-write, direct-validation and restoration errors.
+* Preserved validation and automatic original-content restoration throughout the direct-write fallback.
+* Clarified in the access report when both atomic replacement and the automatic direct-write fallback are available.
+
 = 0.10.2 =
 * Added a Cloudways-compatible locked direct-write fallback when wp-config.php is writable but its containing directory prevents temporary-file creation and atomic replacement.
 * Retained atomic verified replacement as the preferred method whenever the containing directory permits it.

@@ -48,7 +48,9 @@ final class LEC_Config {
             'Writable by PHP' => $file_writable ? 'Yes' : 'No',
             'Directory writable' => $directory_writable ? 'Yes' : 'No',
             'File permissions' => $permissions === false ? 'Unavailable' : sprintf('%04o', $permissions & 0777),
-            'Automatic write method' => $directory_writable ? 'Atomic verified replacement' : ($file_writable ? 'Locked direct update with verification' : 'Unavailable'),
+            'Automatic write method' => $directory_writable
+                ? ($file_writable ? 'Atomic replacement with locked direct-write fallback' : 'Atomic verified replacement')
+                : ($file_writable ? 'Locked direct update with verification' : 'Unavailable'),
         );
     }
 
@@ -151,12 +153,20 @@ final class LEC_Config {
             $permissions = fileperms($path);
             $mode = $permissions === false ? 0640 : ($permissions & 0777);
             $tmp = $directory . '/.' . basename($path) . '.lec-' . wp_generate_password(10, false, false);
-            if (file_put_contents($tmp, $updated, LOCK_EX) === false) return new WP_Error('lec_config_temp', 'The verified temporary configuration file could not be written.');
+            if (file_put_contents($tmp, $updated, LOCK_EX) === false) {
+                if (is_writable($path)) return self::commit_direct($path, $updated, $original, $validator, $failure_message, 'Temporary-file creation failed, so Lucid tried the locked direct-write fallback.');
+                return new WP_Error('lec_config_temp', 'The verified temporary configuration file could not be written, and wp-config.php is not directly writable.');
+            }
             @chmod($tmp, $mode);
             $check = (string) file_get_contents($tmp);
-            if (!$validator($check) || !@rename($tmp, $path)) {
+            if (!$validator($check)) {
                 @unlink($tmp);
-                return new WP_Error('lec_config_commit', $failure_message . ' The original file was left in place.');
+                return new WP_Error('lec_config_temp_verify', $failure_message . ' The temporary file failed validation, so the original file was left in place.');
+            }
+            if (!@rename($tmp, $path)) {
+                @unlink($tmp);
+                if (is_writable($path)) return self::commit_direct($path, $updated, $original, $validator, $failure_message, 'Atomic replacement was refused by the host, so Lucid tried the locked direct-write fallback.');
+                return new WP_Error('lec_config_rename', $failure_message . ' The host refused atomic replacement and wp-config.php is not directly writable. The original file was left in place.');
             }
             clearstatcache(true, $path);
             if (!$validator((string) file_get_contents($path))) return new WP_Error('lec_config_verify', $failure_message . ' Verification failed after the atomic replacement.');
@@ -164,19 +174,23 @@ final class LEC_Config {
         }
 
         if (!is_writable($path)) return new WP_Error('lec_config_file_not_writable', $failure_message . ' PHP cannot write to wp-config.php and its containing directory does not permit atomic replacement.');
+        return self::commit_direct($path, $updated, $original, $validator, $failure_message, 'The containing directory does not permit atomic replacement, so Lucid used a locked direct update.');
+    }
+
+    private static function commit_direct(string $path, string $updated, string $original, callable $validator, string $failure_message, string $method_detail) {
         if (!self::locked_write($path, $updated)) {
             $restored = self::locked_write($path, $original);
             clearstatcache(true, $path);
-            if ($restored && (string) file_get_contents($path) === $original) return new WP_Error('lec_config_direct_write', $failure_message . ' The locked direct update was incomplete, so the original wp-config.php content was restored.');
-            return new WP_Error('lec_config_restore_failed', $failure_message . ' The direct update failed and the original content could not be confirmed as restored. Restore wp-config.php from your hosting backup before continuing.');
+            if ($restored && (string) file_get_contents($path) === $original) return new WP_Error('lec_config_direct_write', $failure_message . ' ' . $method_detail . ' The direct update was incomplete, so the original wp-config.php content was restored.');
+            return new WP_Error('lec_config_restore_failed', $failure_message . ' ' . $method_detail . ' The direct update failed and the original content could not be confirmed as restored. Restore wp-config.php from your hosting backup before continuing.');
         }
         clearstatcache(true, $path);
         if ($validator((string) file_get_contents($path))) return true;
 
         $restored = self::locked_write($path, $original);
         clearstatcache(true, $path);
-        if ($restored && (string) file_get_contents($path) === $original) return new WP_Error('lec_config_direct_verify', $failure_message . ' Verification failed, so the original wp-config.php content was restored.');
-        return new WP_Error('lec_config_restore_failed', $failure_message . ' Verification failed and the original content could not be confirmed as restored. Restore wp-config.php from your hosting backup before continuing.');
+        if ($restored && (string) file_get_contents($path) === $original) return new WP_Error('lec_config_direct_verify', $failure_message . ' ' . $method_detail . ' Verification failed, so the original wp-config.php content was restored.');
+        return new WP_Error('lec_config_restore_failed', $failure_message . ' ' . $method_detail . ' Verification failed and the original content could not be confirmed as restored. Restore wp-config.php from your hosting backup before continuing.');
     }
 
     private static function locked_write(string $path, string $contents): bool {
